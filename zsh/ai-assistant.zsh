@@ -1,0 +1,457 @@
+#!/usr/bin/env zsh
+# AI Shell Assistant - ZSH Integration
+# Provides Warp Terminal-like AI assistance using local LLM models
+
+# Configuration
+AI_SHELL_SOCKET="${AI_SHELL_SOCKET:-/tmp/ai-shell.sock}"
+AI_SHELL_SUGGESTION_COLOR="${AI_SHELL_SUGGESTION_COLOR:-8}"  # Gray color for suggestions
+AI_SHELL_ENABLE_INLINE="${AI_SHELL_ENABLE_INLINE:-1}"         # Enable inline suggestions
+AI_SHELL_DEBUG="${AI_SHELL_DEBUG:-0}"                         # Debug mode
+
+# Internal state
+typeset -g _ai_shell_suggestion=""
+typeset -g _ai_shell_suggestion_pending=0
+
+# ============================================================================
+# Socket Communication Functions
+# ============================================================================
+
+# Send JSON request to daemon via Unix socket
+# Args: $1 = JSON payload
+# Returns: JSON response via stdout
+_ai_shell_send_request() {
+    local payload="$1"
+    local socket="$AI_SHELL_SOCKET"
+
+    if [[ ! -S "$socket" ]]; then
+        [[ $AI_SHELL_DEBUG -eq 1 ]] && echo "Error: Socket not found at $socket" >&2
+        return 1
+    fi
+
+    # Use netcat to communicate with Unix socket
+    # Send length-prefixed JSON message
+    local response
+    if command -v nc >/dev/null 2>&1; then
+        # Calculate length and create length prefix (4 bytes, big-endian)
+        local length=${#payload}
+        local prefix=$(printf '\x%02x\x%02x\x%02x\x%02x' \
+            $(( (length >> 24) & 0xFF )) \
+            $(( (length >> 16) & 0xFF )) \
+            $(( (length >> 8) & 0xFF )) \
+            $(( length & 0xFF )) )
+
+        # Send request and read response
+        response=$(echo -n "${prefix}${payload}" | nc -U "$socket" 2>/dev/null)
+
+        if [[ $? -eq 0 && -n "$response" ]]; then
+            # Strip length prefix from response (first 4 bytes)
+            echo "${response:4}"
+            return 0
+        fi
+    fi
+
+    [[ $AI_SHELL_DEBUG -eq 1 ]] && echo "Error: Failed to communicate with daemon" >&2
+    return 1
+}
+
+# Create a request payload
+# Args: $1 = type, $2 = command/task, $3 = additional context (optional)
+_ai_shell_create_request() {
+    local type="$1"
+    local content="$2"
+    local extra_context="$3"
+
+    local id="req-$(date +%s)-$$"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    local pwd_safe="${PWD/#$HOME/\~}"
+
+    # Get recent command history
+    local history_json="[]"
+    if [[ -n "$HISTFILE" ]]; then
+        local recent_cmds=$(fc -ln -10 | sed 's/^[[:space:]]*//' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+        [[ -n "$recent_cmds" ]] && history_json="$recent_cmds"
+    fi
+
+    # Get git branch if in a git repo
+    local git_branch=""
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        git_branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+    fi
+
+    # Build context object
+    local context_obj=$(cat <<-EOF
+		{
+		  "history": $history_json,
+		  "gitBranch": $(echo -n "$git_branch" | jq -R -s '.'),
+		  "environment": {
+		    "SHELL": "$SHELL",
+		    "USER": "$USER",
+		    "PWD": "$pwd_safe"
+		  }
+		}
+	EOF
+    )
+
+    # Build payload based on request type
+    local payload_obj
+    case "$type" in
+        suggest)
+            payload_obj=$(cat <<-EOF
+				{
+				  "command": $(echo -n "$content" | jq -R -s '.'),
+				  "workingDirectory": "$pwd_safe",
+				  "context": $context_obj
+				}
+			EOF
+            )
+            ;;
+        explain)
+            payload_obj=$(cat <<-EOF
+				{
+				  "command": $(echo -n "$content" | jq -R -s '.'),
+				  "workingDirectory": "$pwd_safe",
+				  "context": $context_obj
+				}
+			EOF
+            )
+            ;;
+        task)
+            payload_obj=$(cat <<-EOF
+				{
+				  "task": $(echo -n "$content" | jq -R -s '.'),
+				  "workingDirectory": "$pwd_safe",
+				  "context": $context_obj
+				}
+			EOF
+            )
+            ;;
+        health)
+            payload_obj='{}'
+            ;;
+        *)
+            echo "Error: Unknown request type: $type" >&2
+            return 1
+            ;;
+    esac
+
+    # Build complete request
+    cat <<-EOF
+		{
+		  "id": "$id",
+		  "type": "$type",
+		  "payload": $payload_obj,
+		  "timestamp": "$timestamp"
+		}
+	EOF
+}
+
+# ============================================================================
+# AI Assistance Functions
+# ============================================================================
+
+# Get AI suggestion for current command
+ai_shell_suggest() {
+    local command="${1:-$BUFFER}"
+    [[ -z "$command" ]] && return 1
+
+    local request=$(_ai_shell_create_request "suggest" "$command")
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+        if [[ "$status" == "success" ]]; then
+            echo "$response" | jq -r '.payload.suggestion // ""'
+            return 0
+        else
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            [[ $AI_SHELL_DEBUG -eq 1 ]] && echo "Error: $error_msg" >&2
+        fi
+    fi
+
+    return 1
+}
+
+# Get AI explanation for command
+ai_shell_explain() {
+    local command="${1:-$BUFFER}"
+    [[ -z "$command" ]] && return 1
+
+    echo -n "Explaining command: $command ... "
+
+    local request=$(_ai_shell_create_request "explain" "$command")
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+        echo ""  # Newline after "..."
+
+        if [[ "$status" == "success" ]]; then
+            local explanation=$(echo "$response" | jq -r '.payload.explanation // ""')
+            local processing_time=$(echo "$response" | jq -r '.processingTime // 0')
+
+            echo "$explanation"
+            echo ""
+            echo "$(tput dim)[Processing time: ${processing_time}s]$(tput sgr0)"
+            return 0
+        else
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            echo "Error: $error_msg"
+        fi
+    else
+        echo "Failed to communicate with AI daemon"
+    fi
+
+    return 1
+}
+
+# Convert natural language task to shell commands
+ai_shell_task() {
+    local task="$@"
+    [[ -z "$task" ]] && {
+        echo "Usage: ai_shell_task <description of task>"
+        echo "Example: ai_shell_task find all python files modified in last week"
+        return 1
+    }
+
+    echo "Converting task to commands: $task"
+    echo ""
+
+    local request=$(_ai_shell_create_request "task" "$task")
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+
+        if [[ "$status" == "success" ]]; then
+            local commands=$(echo "$response" | jq -r '.payload.commands // [] | .[]')
+
+            if [[ -n "$commands" ]]; then
+                echo "Suggested commands:"
+                echo "---"
+                echo "$commands"
+                echo "---"
+                echo ""
+                echo -n "Execute these commands? [y/N] "
+                read -r confirm
+
+                if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                    echo ""
+                    echo "$commands" | while IFS= read -r cmd; do
+                        echo "$ $cmd"
+                        eval "$cmd"
+                        echo ""
+                    done
+                else
+                    echo "Commands not executed. You can copy them manually."
+                fi
+            else
+                echo "No commands generated."
+            fi
+            return 0
+        else
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            echo "Error: $error_msg"
+        fi
+    else
+        echo "Failed to communicate with AI daemon"
+    fi
+
+    return 1
+}
+
+# Check daemon health
+ai_shell_health() {
+    local request=$(_ai_shell_create_request "health" "")
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+
+        if [[ "$status" == "success" ]]; then
+            echo "✓ AI Shell Assistant daemon is healthy"
+            echo "  Socket: $AI_SHELL_SOCKET"
+            return 0
+        else
+            echo "✗ AI Shell Assistant daemon reported an error"
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            echo "  Error: $error_msg"
+        fi
+    else
+        echo "✗ Cannot communicate with AI Shell Assistant daemon"
+        echo "  Socket: $AI_SHELL_SOCKET"
+        echo "  Make sure the daemon is running: ai-shell-daemon"
+    fi
+
+    return 1
+}
+
+# ============================================================================
+# ZLE (ZSH Line Editor) Integration
+# ============================================================================
+
+# Accept the current AI suggestion
+_ai_shell_accept_suggestion() {
+    if [[ -n "$_ai_shell_suggestion" ]]; then
+        BUFFER="$_ai_shell_suggestion"
+        _ai_shell_suggestion=""
+        zle end-of-line
+    fi
+}
+
+# Clear the current suggestion
+_ai_shell_clear_suggestion() {
+    _ai_shell_suggestion=""
+    zle reset-prompt
+}
+
+# Show inline suggestion (like Fish shell)
+_ai_shell_inline_suggest() {
+    # Don't suggest if buffer is empty or too short
+    [[ ${#BUFFER} -lt 3 ]] && return
+
+    # Don't suggest if already pending
+    [[ $_ai_shell_suggestion_pending -eq 1 ]] && return
+
+    # Trigger async suggestion
+    (
+        _ai_shell_suggestion_pending=1
+        local suggestion=$(ai_shell_suggest "$BUFFER")
+
+        if [[ -n "$suggestion" && "$suggestion" != "$BUFFER" ]]; then
+            _ai_shell_suggestion="$suggestion"
+            # Signal to update display (use SIGUSR1)
+            kill -USR1 $$ 2>/dev/null
+        fi
+        _ai_shell_suggestion_pending=0
+    ) &!
+}
+
+# ZLE widget to accept suggestion with Tab
+_ai_shell_zle_accept_suggestion() {
+    if [[ -n "$_ai_shell_suggestion" ]]; then
+        BUFFER="$_ai_shell_suggestion"
+        _ai_shell_suggestion=""
+        zle end-of-line
+    else
+        # Default tab behavior
+        zle expand-or-complete
+    fi
+}
+
+# ZLE widget to show explanation
+_ai_shell_zle_explain() {
+    if [[ -n "$BUFFER" ]]; then
+        # Save current buffer
+        local saved_buffer="$BUFFER"
+
+        # Clear line and show explanation
+        zle clear-screen
+        ai_shell_explain "$saved_buffer"
+
+        # Restore buffer
+        BUFFER="$saved_buffer"
+        zle reset-prompt
+    fi
+}
+
+# ZLE widget to get suggestion manually
+_ai_shell_zle_suggest() {
+    if [[ -n "$BUFFER" ]]; then
+        local suggestion=$(ai_shell_suggest "$BUFFER")
+
+        if [[ -n "$suggestion" && "$suggestion" != "$BUFFER" ]]; then
+            BUFFER="$suggestion"
+            zle end-of-line
+        fi
+    fi
+}
+
+# Register ZLE widgets
+zle -N _ai_shell_zle_accept_suggestion
+zle -N _ai_shell_zle_explain
+zle -N _ai_shell_zle_suggest
+
+# ============================================================================
+# Keybindings
+# ============================================================================
+
+# Ctrl+Space: Get AI suggestion
+bindkey '^ ' _ai_shell_zle_suggest
+
+# Ctrl+E (after moving to end): Explain command
+bindkey '^Xe' _ai_shell_zle_explain
+
+# Right arrow: Accept suggestion if available
+# (Note: This is experimental and may interfere with normal navigation)
+# bindkey '^[[C' _ai_shell_zle_accept_suggestion
+
+# ============================================================================
+# Initialization
+# ============================================================================
+
+# Check dependencies
+_ai_shell_check_dependencies() {
+    local missing=()
+
+    command -v jq >/dev/null 2>&1 || missing+=("jq")
+    command -v nc >/dev/null 2>&1 || missing+=("netcat")
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "Warning: AI Shell Assistant requires the following dependencies:" >&2
+        printf '  - %s\n' "${missing[@]}" >&2
+        echo "" >&2
+        echo "Install with:" >&2
+        echo "  brew install ${missing[*]}" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+# Auto-start daemon if not running
+_ai_shell_auto_start() {
+    if [[ ! -S "$AI_SHELL_SOCKET" ]]; then
+        if command -v ai-shell-daemon >/dev/null 2>&1; then
+            echo "Starting AI Shell Assistant daemon..."
+            ai-shell-daemon &!
+            sleep 1
+        fi
+    fi
+}
+
+# Initialize plugin
+_ai_shell_init() {
+    # Check dependencies
+    _ai_shell_check_dependencies || return 1
+
+    # Auto-start daemon if enabled
+    if [[ "${AI_SHELL_AUTO_START:-0}" -eq 1 ]]; then
+        _ai_shell_auto_start
+    fi
+
+    # Show welcome message
+    if [[ -S "$AI_SHELL_SOCKET" ]]; then
+        echo "AI Shell Assistant loaded. Available commands:"
+        echo "  ai_shell_task <description>  - Convert natural language to commands"
+        echo "  ai_shell_explain [command]   - Explain a command"
+        echo "  ai_shell_health              - Check daemon status"
+        echo ""
+        echo "Keybindings:"
+        echo "  Ctrl+Space  - Get AI suggestion for current command"
+        echo "  Ctrl+X e    - Explain current command"
+    else
+        echo "AI Shell Assistant loaded (daemon not running)"
+        echo "Start daemon with: ai-shell-daemon"
+    fi
+}
+
+# Run initialization
+_ai_shell_init
+
+# ============================================================================
+# Aliases (optional convenience functions)
+# ============================================================================
+
+alias ait='ai_shell_task'
+alias aix='ai_shell_explain'
+alias aih='ai_shell_health'
