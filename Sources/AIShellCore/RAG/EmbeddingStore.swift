@@ -269,7 +269,9 @@ public actor EmbeddingStore {
                 options: [.skipsHiddenFiles]
             ) else { return }
 
-            for case let fileURL as URL in enumerator {
+            // Collect all URLs first to avoid async iteration warning
+            let allObjects = enumerator.allObjects
+            for case let fileURL as URL in allObjects {
                 if fileURL.pathExtension == "md" {
                     urls.append(fileURL)
                 }

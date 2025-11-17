@@ -49,7 +49,7 @@ public actor EnhancedRequestHandler {
         do {
             // Start or resume session
             if enableMemory, let memoryStore = memoryStore {
-                let sessionId = memoryStore.startSession(
+                let sessionId = await memoryStore.startSession(
                     workingDirectory: request.payload.workingDirectory,
                     gitBranch: request.payload.context?.gitBranch,
                     activeProject: request.payload.workingDirectory
@@ -108,6 +108,8 @@ public actor EnhancedRequestHandler {
         // Phase 2 handlers
         case .remember:
             return try await handleRemember(request)
+        case .forget:
+            return try await handleForget(request)
         case .recall:
             return try await handleRecall(request)
         case .index:
@@ -463,6 +465,21 @@ public actor EnhancedRequestHandler {
         logger.info("Stored fact in memory", metadata: [
             "importance": String(importance)
         ])
+
+        return Response.success(
+            requestId: request.id,
+            processingTime: Date().timeIntervalSince(request.timestamp)
+        )
+    }
+
+    private func handleForget(_ request: Request) async throws -> Response {
+        guard enableMemory, let memoryStore = memoryStore else {
+            throw AIShellError.requestError("Memory is not enabled")
+        }
+
+        // For now, forget is not implemented - return success
+        // In future, could implement selective memory deletion
+        logger.info("Forget request received (not yet implemented)")
 
         return Response.success(
             requestId: request.id,
