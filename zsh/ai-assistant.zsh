@@ -432,13 +432,23 @@ _ai_shell_init() {
     # Show welcome message
     if [[ -S "$AI_SHELL_SOCKET" ]]; then
         echo "AI Shell Assistant loaded. Available commands:"
-        echo "  ai_shell_task <description>  - Convert natural language to commands"
-        echo "  ai_shell_explain [command]   - Explain a command"
-        echo "  ai_shell_health              - Check daemon status"
+        echo ""
+        echo "  Core:"
+        echo "    ai_shell_task <description>  - Convert natural language to commands"
+        echo "    ai_shell_explain [command]   - Explain a command"
+        echo "    ai_shell_health              - Check daemon status"
+        echo ""
+        echo "  Memory & RAG (Phase 2):"
+        echo "    ai_shell_remember <fact>     - Store in long-term memory"
+        echo "    ai_shell_recall <query>      - Query memory"
+        echo "    ai_shell_index <file>        - Index documentation"
+        echo "    ai_shell_search <query>      - Search indexed docs"
         echo ""
         echo "Keybindings:"
         echo "  Ctrl+Space  - Get AI suggestion for current command"
         echo "  Ctrl+X e    - Explain current command"
+        echo ""
+        echo "Aliases: ait, aix, aih, air, airc, aii, ais"
     else
         echo "AI Shell Assistant loaded (daemon not running)"
         echo "Start daemon with: ai-shell-daemon"
@@ -449,9 +459,240 @@ _ai_shell_init() {
 _ai_shell_init
 
 # ============================================================================
+# Phase 2: Memory and RAG Commands
+# ============================================================================
+
+# Store a fact in long-term memory
+ai_shell_remember() {
+    local fact="$@"
+    [[ -z "$fact" ]] && {
+        echo "Usage: ai_shell_remember <fact to remember>"
+        echo "Example: ai_shell_remember I prefer verbose git commits"
+        return 1
+    }
+
+    local request=$(_ai_shell_create_request "remember" "" "")
+
+    # Add fact to payload
+    local id="req-$(date +%s)-$$"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+    request=$(cat <<-EOF
+		{
+		  "id": "$id",
+		  "type": "remember",
+		  "payload": {
+		    "fact": $(echo -n "$fact" | jq -R -s '.'),
+		    "importance": 0.7
+		  },
+		  "timestamp": "$timestamp"
+		}
+	EOF
+    )
+
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+
+        if [[ "$status" == "success" ]]; then
+            echo "✓ Remembered: $fact"
+            return 0
+        else
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            echo "Error: $error_msg"
+        fi
+    else
+        echo "Failed to communicate with AI daemon"
+    fi
+
+    return 1
+}
+
+# Query memory for relevant information
+ai_shell_recall() {
+    local query="$@"
+    [[ -z "$query" ]] && {
+        echo "Usage: ai_shell_recall <query>"
+        echo "Example: ai_shell_recall git preferences"
+        return 1
+    }
+
+    local id="req-$(date +%s)-$$"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+    local request=$(cat <<-EOF
+		{
+		  "id": "$id",
+		  "type": "recall",
+		  "payload": {
+		    "query": $(echo -n "$query" | jq -R -s '.')
+		  },
+		  "timestamp": "$timestamp"
+		}
+	EOF
+    )
+
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+
+        if [[ "$status" == "success" ]]; then
+            echo "Memories matching '$query':"
+            echo "---"
+            echo "$response" | jq -r '.payload.commands // [] | .[]'
+            return 0
+        else
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            echo "Error: $error_msg"
+        fi
+    else
+        echo "Failed to communicate with AI daemon"
+    fi
+
+    return 1
+}
+
+# Index a file or documentation
+ai_shell_index() {
+    local file_path="$1"
+    [[ -z "$file_path" ]] && {
+        echo "Usage: ai_shell_index <file_path>"
+        echo "Example: ai_shell_index README.md"
+        echo "         ai_shell_index docs/**/*.md  # Index all markdown files"
+        return 1
+    }
+
+    # Expand glob if needed
+    local files=("${(@f)$(echo $file_path)}")
+
+    if [[ ! -f "$file_path" ]]; then
+        # Try glob expansion
+        files=(${~file_path})
+    else
+        files=("$file_path")
+    fi
+
+    local indexed=0
+    local failed=0
+
+    for file in "${files[@]}"; do
+        [[ ! -f "$file" ]] && continue
+
+        echo -n "Indexing $file ... "
+
+        local content=$(cat "$file" 2>/dev/null)
+        [[ -z "$content" ]] && {
+            echo "failed (empty or unreadable)"
+            ((failed++))
+            continue
+        }
+
+        local id="req-$(date +%s)-$$-$indexed"
+        local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+        local pwd_safe="${PWD/#$HOME/\~}"
+
+        local request=$(cat <<-EOF
+			{
+			  "id": "$id",
+			  "type": "index",
+			  "payload": {
+			    "filePath": $(echo -n "$file" | jq -R -s '.'),
+			    "content": $(echo -n "$content" | jq -R -s '.'),
+			    "workingDirectory": "$pwd_safe",
+			    "importance": 0.8
+			  },
+			  "timestamp": "$timestamp"
+			}
+		EOF
+        )
+
+        local response=$(_ai_shell_send_request "$request")
+
+        if [[ $? -eq 0 && -n "$response" ]]; then
+            local status=$(echo "$response" | jq -r '.status // "error"')
+
+            if [[ "$status" == "success" ]]; then
+                echo "✓"
+                ((indexed++))
+            else
+                echo "failed"
+                ((failed++))
+            fi
+        else
+            echo "failed"
+            ((failed++))
+        fi
+    done
+
+    echo ""
+    echo "Indexed: $indexed files"
+    [[ $failed -gt 0 ]] && echo "Failed: $failed files"
+
+    return 0
+}
+
+# Search indexed documents
+ai_shell_search() {
+    local query="$@"
+    [[ -z "$query" ]] && {
+        echo "Usage: ai_shell_search <query>"
+        echo "Example: ai_shell_search docker deployment"
+        return 1
+    }
+
+    echo "Searching for: $query"
+    echo ""
+
+    local id="req-$(date +%s)-$$"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    local pwd_safe="${PWD/#$HOME/\~}"
+
+    local request=$(cat <<-EOF
+		{
+		  "id": "$id",
+		  "type": "search",
+		  "payload": {
+		    "query": $(echo -n "$query" | jq -R -s '.'),
+		    "workingDirectory": "$pwd_safe"
+		  },
+		  "timestamp": "$timestamp"
+		}
+	EOF
+    )
+
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local status=$(echo "$response" | jq -r '.status // "error"')
+
+        if [[ "$status" == "success" ]]; then
+            echo "Results:"
+            echo "---"
+            echo "$response" | jq -r '.payload.commands // [] | .[]'
+            return 0
+        else
+            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            echo "Error: $error_msg"
+        fi
+    else
+        echo "Failed to communicate with AI daemon"
+    fi
+
+    return 1
+}
+
+# ============================================================================
 # Aliases (optional convenience functions)
 # ============================================================================
 
 alias ait='ai_shell_task'
 alias aix='ai_shell_explain'
 alias aih='ai_shell_health'
+
+# Phase 2 aliases
+alias air='ai_shell_remember'
+alias airc='ai_shell_recall'
+alias aii='ai_shell_index'
+alias ais='ai_shell_search'
