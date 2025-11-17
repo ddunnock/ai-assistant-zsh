@@ -30,12 +30,22 @@ public struct AIShellDaemonCLI: AsyncParsableCommand {
     }
 
     public func run() async throws {
+        print("DEBUG: run() called!")
+        print("DEBUG: Thread: \(Thread.current)")
         print("🚀 AI Shell Assistant Daemon")
         print("Version: \(Self.configuration.version)")
         print()
 
+        print("DEBUG: About to load configuration from: \(String(describing: config))")
         // Load configuration
-        var configuration = try Configuration.load(from: config)
+        var configuration: Configuration
+        do {
+            configuration = try Configuration.load(from: config)
+            print("DEBUG: Configuration loaded successfully")
+        } catch {
+            print("DEBUG: Configuration loading failed: \(error)")
+            throw error
+        }
 
         // Override with command line options
         if let socket = socket {
@@ -59,11 +69,16 @@ public struct AIShellDaemonCLI: AsyncParsableCommand {
         }
 
         // Create and run daemon
+        print("DEBUG: Creating DaemonService")
         let daemon = DaemonService(configuration: configuration)
+        print("DEBUG: DaemonService created, about to call daemon.run()")
 
         do {
+            print("DEBUG: Calling daemon.run()")
             try await daemon.run()
+            print("DEBUG: daemon.run() completed")
         } catch {
+            print("DEBUG: daemon.run() threw error: \(error)")
             print("❌ Error: \(error.localizedDescription)")
             throw ExitCode.failure
         }
