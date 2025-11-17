@@ -214,7 +214,9 @@ actor DaemonService {
         logger.info("Daemon running. Press Ctrl+C to stop.")
         
         // Wait forever (until signal)
-        try await Task.sleep(until: Date.distantFuture, clock: .continuous)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            // Continuation will never resume, keeping the task alive until cancelled
+        }
     }
     
     private func setupSignalHandlers() async {

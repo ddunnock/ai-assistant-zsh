@@ -1,9 +1,9 @@
-// Sources/AIShellDaemon/main.swift
+// Sources/AIShellDaemon/CLI.swift
 
 import Foundation
 import ArgumentParser
+import AIShellCore
 
-@main
 struct AIShellDaemonCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ai-shell-daemon",
@@ -34,18 +34,7 @@ struct AIShellDaemonCLI: AsyncParsableCommand {
                 socketPath: socket,
                 ollamaURL: configuration.ollamaURL,
                 model: configuration.model,
-                logLevel: verbose ? "debug" : configuration.logLevel,
-                enableMemory: configuration.enableMemory,
-                enableRAG: configuration.enableRAG,
-                enableCache: configuration.enableCache,
-                enableStreaming: configuration.enableStreaming,
-                memoryStoragePath: configuration.memoryStoragePath,
-                ragStoragePath: configuration.ragStoragePath,
-                cacheStoragePath: configuration.cacheStoragePath,
-                promptsStoragePath: configuration.promptsStoragePath,
-                maxMemoryAge: configuration.maxMemoryAge,
-                maxCacheAge: configuration.maxCacheAge,
-                ragMinSimilarity: configuration.ragMinSimilarity
+                logLevel: verbose ? "debug" : configuration.logLevel
             )
         }
         
@@ -60,3 +49,4 @@ struct AIShellDaemonCLI: AsyncParsableCommand {
         }
     }
 }
+
