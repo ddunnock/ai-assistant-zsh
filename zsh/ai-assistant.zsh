@@ -187,10 +187,10 @@ ai_shell_explain() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
         echo ""  # Newline after "..."
 
-        if [[ "$status" == "success" ]]; then
+        if [[ "$response_status" == "success" ]]; then
             local explanation=$(echo "$response" | jq -r '.payload.explanation // ""')
             local processing_time=$(echo "$response" | jq -r '.processingTime // 0')
 
@@ -225,9 +225,9 @@ ai_shell_task() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
 
-        if [[ "$status" == "success" ]]; then
+        if [[ "$response_status" == "success" ]]; then
             local commands=$(echo "$response" | jq -r '.payload.commands // [] | .[]')
 
             if [[ -n "$commands" ]]; then
@@ -270,9 +270,9 @@ ai_shell_health() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
 
-        if [[ "$status" == "success" ]]; then
+        if [[ "$response_status" == "success" ]]; then
             echo "✓ AI Shell Assistant daemon is healthy"
             echo "  Socket: $AI_SHELL_SOCKET"
             return 0
@@ -503,9 +503,9 @@ ai_shell_remember() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
 
-        if [[ "$status" == "success" ]]; then
+        if [[ "$response_status" == "success" ]]; then
             echo "✓ Remembered: $fact"
             return 0
         else
@@ -546,9 +546,9 @@ ai_shell_recall() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
 
-        if [[ "$status" == "success" ]]; then
+        if [[ "$response_status" == "success" ]]; then
             echo "Memories matching '$query':"
             echo "---"
             echo "$response" | jq -r '.payload.commands // [] | .[]'
@@ -621,9 +621,9 @@ ai_shell_index() {
         local response=$(_ai_shell_send_request "$request")
 
         if [[ $? -eq 0 && -n "$response" ]]; then
-            local status=$(echo "$response" | jq -r '.status // "error"')
+            local response_status=$(echo "$response" | jq -r '.status // "error"')
 
-            if [[ "$status" == "success" ]]; then
+            if [[ "$response_status" == "success" ]]; then
                 echo "✓"
                 ((indexed++))
             else
@@ -675,9 +675,9 @@ ai_shell_search() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
 
-        if [[ "$status" == "success" ]]; then
+        if [[ "$response_status" == "success" ]]; then
             echo "Results:"
             echo "---"
             echo "$response" | jq -r '.payload.commands // [] | .[]'
