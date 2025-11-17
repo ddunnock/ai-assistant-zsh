@@ -281,7 +281,11 @@ private final class Connection: Hashable, @unchecked Sendable {
 
     private func processMessage(_ data: Data) async {
         do {
-            let request = try JSONDecoder().decode(Request.self, from: data)
+            // Configure decoder for ISO8601 dates
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+
+            let request = try decoder.decode(Request.self, from: data)
 
             logger.debug("Processing request", metadata: [
                 "id": request.id,
@@ -289,7 +293,12 @@ private final class Connection: Hashable, @unchecked Sendable {
             ])
 
             let response = await requestHandler.handle(request)
-            let responseData = try JSONEncoder().encode(response)
+
+            // Configure encoder for ISO8601 dates
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+
+            let responseData = try encoder.encode(response)
 
             // Frame the response
             let framedMessage = FramedMessage(data: responseData)
@@ -311,7 +320,10 @@ private final class Connection: Hashable, @unchecked Sendable {
                 message: error.localizedDescription
             )
 
-            if let errorData = try? JSONEncoder().encode(errorResponse) {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+
+            if let errorData = try? encoder.encode(errorResponse) {
                 let framedMessage = FramedMessage(data: errorData)
                 try? await writeAll(framedMessage.encoded())
             }
