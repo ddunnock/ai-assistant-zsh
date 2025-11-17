@@ -1,12 +1,33 @@
 # Daemon Debugging Status
 
-## Issue
-The daemon builds successfully but shows help instead of running when invoked with `--config` flag.
+## ✅ RESOLVED: ArgumentParser Entry Point
 
-## Symptoms
-- `validate()` method is called successfully (DEBUG output confirms)
-- `run()` method appears to never be called
-- ArgumentParser shows help/overview instead of executing
+**Original Issue:** The daemon builds successfully but shows help instead of running when invoked with `--config` flag.
+
+**Root Cause:** The `@main` attribute was in a separate main.swift file with a wrapper, conflicting with ArgumentParser's expected pattern.
+
+**Solution:** Put `@main` directly on the `AIShellDaemonCLI` struct. This is the standard ArgumentParser pattern.
+
+**Status:** ✅ FIXED - `run()` method now executes successfully!
+
+---
+
+## ✅ RESOLVED: Unix Socket Creation
+
+**Issue:** After fixing the entry point, the daemon failed with "Invalid argument" socket error.
+
+**Root Cause:** SocketServer was using incorrect NWListener pattern for Unix domain sockets.
+
+**Solution:** Use `NWParameters.unix` and pass endpoint in constructor: `NWListener(using: parameters, on: .unix(path:))`
+
+**Status:** ✅ FIXED - Socket should now create properly.
+
+---
+
+## Original Symptoms (Now Fixed)
+- ~~`validate()` method is called successfully (DEBUG output confirms)~~
+- ~~`run()` method appears to never be called~~
+- ~~ArgumentParser shows help/overview instead of executing~~
 
 ## Changes Made
 
