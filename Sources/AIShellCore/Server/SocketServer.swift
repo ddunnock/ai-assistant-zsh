@@ -36,13 +36,10 @@ public actor SocketServer {
             withIntermediateDirectories: true
         )
         
-        // Create listener
-        let endpoint = NWEndpoint.unix(path: socketPath)
-        let parameters = NWParameters()
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = endpoint
-        
-        listener = try NWListener(using: parameters)
+        // Create listener with Unix domain socket parameters
+        let parameters = NWParameters.unix
+
+        listener = try NWListener(using: parameters, on: .unix(path: socketPath))
         
         listener?.newConnectionHandler = { [weak self] nwConnection in
             guard let self = self else { return }
@@ -57,17 +54,9 @@ public actor SocketServer {
                 await self.handleListenerStateChange(state)
             }
         }
-        
+
         listener?.start(queue: .main)
-        
-        // Set socket permissions (owner only)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: socketPath
-        )
-        
         isRunning = true
-        logger.info("Socket server started", metadata: ["path": socketPath])
     }
     
     public func stop() async {
@@ -125,7 +114,17 @@ public actor SocketServer {
     private func handleListenerStateChange(_ state: NWListener.State) {
         switch state {
         case .ready:
-            logger.info("Listener ready")
+            // Socket file now exists, set permissions (owner only)
+            do {
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600],
+                    ofItemAtPath: socketPath
+                )
+                logger.info("Socket server ready", metadata: ["path": socketPath])
+            } catch {
+                logger.warning("Failed to set socket permissions", error: error)
+                logger.info("Listener ready", metadata: ["path": socketPath])
+            }
         case .failed(let error):
             logger.error("Listener failed", error: error)
             Task {
