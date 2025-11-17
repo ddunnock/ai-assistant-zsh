@@ -20,7 +20,14 @@ struct AIShellDaemonCLI: AsyncParsableCommand {
     
     @Flag(name: .shortAndLong, help: "Verbose logging")
     var verbose: Bool = false
-    
+
+    mutating func validate() throws {
+        print("DEBUG: validate() called")
+        print("DEBUG: config = \(String(describing: config))")
+        print("DEBUG: socket = \(String(describing: socket))")
+        print("DEBUG: verbose = \(verbose)")
+    }
+
     func run() async throws {
         print("🚀 AI Shell Assistant Daemon")
         print("Version: \(Self.configuration.version)")
