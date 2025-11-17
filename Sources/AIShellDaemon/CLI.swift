@@ -4,6 +4,7 @@ import Foundation
 import ArgumentParser
 import AIShellCore
 
+@main
 public struct AIShellDaemonCLI: AsyncParsableCommand {
     public static let configuration = CommandConfiguration(
         commandName: "ai-shell-daemon",
@@ -31,7 +32,6 @@ public struct AIShellDaemonCLI: AsyncParsableCommand {
 
     public func run() async throws {
         print("DEBUG: run() called!")
-        print("DEBUG: Thread: \(Thread.current)")
         print("🚀 AI Shell Assistant Daemon")
         print("Version: \(Self.configuration.version)")
         print()
