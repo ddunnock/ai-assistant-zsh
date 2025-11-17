@@ -10,25 +10,22 @@ The daemon builds successfully but shows help instead of running when invoked wi
 
 ## Changes Made
 
-### 1. main.swift - More Explicit Entry Point
-Changed from bare top-level await to wrapped @main struct:
+### 1. CLI.swift - Direct @main Attribute
+Put `@main` directly on the `AIShellDaemonCLI` struct and removed main.swift entirely:
 
 ```swift
 @main
-struct Main {
-    static func main() async {
-        await AIShellDaemonCLI.main()
-    }
+public struct AIShellDaemonCLI: AsyncParsableCommand {
+    // ...
 }
 ```
 
-**Why:** Bare top-level `await` might not properly initialize ArgumentParser's command structure. The @main wrapper provides a more explicit entry point.
+**Why:** ArgumentParser works best with `@main` directly on the command struct. Having a separate main.swift file with top-level code or another @main wrapper causes conflicts. This is the standard ArgumentParser pattern for async commands.
 
-### 2. CLI.swift - Comprehensive Debug Output
+### 2. Comprehensive Debug Output
 Added DEBUG statements throughout the run() method to track execution:
 
-- Entry point confirmation
-- Thread information
+- Entry point confirmation: "DEBUG: run() called!"
 - Configuration loading (with try/catch to catch errors)
 - DaemonService creation
 - daemon.run() invocation
@@ -61,10 +58,11 @@ Run the test script on your Mac:
 You'll see:
 ```
 DEBUG: run() called!
-DEBUG: Thread: <NSThread: 0x...>
 🚀 AI Shell Assistant Daemon
 Version: 1.0.0
 DEBUG: About to load configuration from: Optional("/path/to/config.json")
+DEBUG: Configuration loaded successfully
+DEBUG: Creating DaemonService
 ...
 ```
 
