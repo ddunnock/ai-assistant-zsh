@@ -8,72 +8,203 @@ import Logging
 actor DaemonService {
     private let configuration: Configuration
     private let logger = LoggerFactory.create(category: "daemon")
-    
+
     private var socketServer: SocketServer?
     private var ollamaClient: OllamaClient?
+
+    // Phase 2 components
+    private var memoryStore: MemoryStore?
+    private var embeddingStore: EmbeddingStore?
+    private var responseCache: ResponseCache?
+    private var promptTemplates: PromptTemplates?
+
     private var isRunning = false
-    
+
     init(configuration: Configuration) {
         self.configuration = configuration
     }
-    
+
     func start() async throws {
         guard !isRunning else {
             logger.warning("Daemon already running")
             return
         }
-        
+
         logger.info("Starting AI Shell Daemon", metadata: [
             "socket": configuration.socketPath,
             "ollama": configuration.ollamaURL,
-            "model": configuration.model
+            "model": configuration.model,
+            "memory": String(configuration.enableMemory),
+            "rag": String(configuration.enableRAG),
+            "cache": String(configuration.enableCache)
         ])
-        
+
         // Initialize Ollama client
         let ollama = OllamaClient(
             baseURL: configuration.ollamaURL,
             model: configuration.model
         )
         self.ollamaClient = ollama
-        
+
         // Check Ollama health
         let isHealthy = await ollama.healthCheck()
         guard isHealthy else {
             throw AIShellError.ollamaError("Ollama is not responding. Is it running?")
         }
-        
+
         logger.info("Ollama connection verified")
-        
-        // Create request handler
-        let requestHandler = RequestHandler(ollamaClient: ollama)
-        
+
+        // Initialize Phase 2 components
+        try await initializePhase2Components(ollamaClient: ollama)
+
+        // Create enhanced request handler with Phase 2 features
+        let requestHandler = EnhancedRequestHandler(
+            ollamaClient: ollama,
+            memoryStore: memoryStore,
+            embeddingStore: embeddingStore,
+            responseCache: responseCache,
+            promptTemplates: promptTemplates ?? PromptTemplates(),
+            enableMemory: configuration.enableMemory,
+            enableRAG: configuration.enableRAG,
+            enableCache: configuration.enableCache
+        )
+
         // Start socket server
         let server = SocketServer(
             socketPath: configuration.socketPath,
             requestHandler: requestHandler
         )
         self.socketServer = server
-        
+
         try await server.start()
-        
+
         isRunning = true
         logger.info("Daemon started successfully")
-        
+
         // Setup signal handlers
         await setupSignalHandlers()
+    }
+
+    private func initializePhase2Components(ollamaClient: OllamaClient) async throws {
+        // Initialize Prompt Templates
+        let promptsURL = configuration.storageURL(for: "prompts", defaultName: "prompts.json")
+        let templates = PromptTemplates(storageURL: promptsURL)
+
+        do {
+            try await templates.load()
+            logger.info("Loaded custom prompts")
+        } catch {
+            logger.info("Using default prompts")
+        }
+
+        self.promptTemplates = templates
+
+        // Initialize Memory Store
+        if configuration.enableMemory {
+            let memoryURL = configuration.storageURL(for: "memory", defaultName: "memory.json")
+            let memory = MemoryStore(storageURL: memoryURL)
+
+            do {
+                try await memory.load()
+                logger.info("Loaded memory from disk")
+            } catch {
+                logger.info("Starting with fresh memory")
+            }
+
+            self.memoryStore = memory
+        }
+
+        // Initialize RAG/Embedding Store
+        if configuration.enableRAG {
+            let ragURL = configuration.storageURL(for: "rag", defaultName: "embeddings.json")
+            let embeddings = EmbeddingStore(storageURL: ragURL, ollamaClient: ollamaClient)
+
+            do {
+                try await embeddings.load()
+                let stats = await embeddings.getStatistics()
+                if let docCount = stats["total_documents"] as? Int {
+                    logger.info("Loaded RAG store", metadata: ["documents": String(docCount)])
+                }
+            } catch {
+                logger.info("Starting with empty RAG store")
+            }
+
+            self.embeddingStore = embeddings
+        }
+
+        // Initialize Response Cache
+        if configuration.enableCache {
+            let cacheURL = configuration.storageURL(for: "cache", defaultName: "cache.json")
+            let cache = ResponseCache(storageURL: cacheURL, enablePersistence: true)
+
+            do {
+                try await cache.load()
+                let stats = await cache.getStatistics()
+                logger.info("Loaded cache", metadata: ["entries": String(stats.totalEntries)])
+            } catch {
+                logger.info("Starting with empty cache")
+            }
+
+            self.responseCache = cache
+        }
     }
     
     func stop() async {
         guard isRunning else { return }
-        
+
         logger.info("Stopping daemon")
-        
+
+        // Save Phase 2 component state
+        await savePhase2Components()
+
         if let server = socketServer {
             await server.stop()
         }
-        
+
         isRunning = false
         logger.info("Daemon stopped")
+    }
+
+    private func savePhase2Components() async {
+        // Save memory
+        if let memory = memoryStore {
+            do {
+                try await memory.save()
+                logger.info("Saved memory to disk")
+            } catch {
+                logger.error("Failed to save memory", error: error)
+            }
+        }
+
+        // Save embeddings
+        if let embeddings = embeddingStore {
+            do {
+                try await embeddings.save()
+                logger.info("Saved RAG store to disk")
+            } catch {
+                logger.error("Failed to save RAG store", error: error)
+            }
+        }
+
+        // Save cache
+        if let cache = responseCache {
+            do {
+                try await cache.save()
+                logger.info("Saved cache to disk")
+            } catch {
+                logger.error("Failed to save cache", error: error)
+            }
+        }
+
+        // Save prompts
+        if let prompts = promptTemplates {
+            do {
+                try await prompts.save()
+                logger.info("Saved prompts to disk")
+            } catch {
+                logger.error("Failed to save prompts", error: error)
+            }
+        }
     }
     
     func run() async throws {

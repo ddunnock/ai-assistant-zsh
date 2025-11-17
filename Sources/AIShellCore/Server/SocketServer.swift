@@ -7,13 +7,13 @@ import Network
 public actor SocketServer {
     private let socketPath: String
     private var listener: NWListener?
-    private let requestHandler: RequestHandler
+    private let requestHandler: any RequestHandling
     private let logger = LoggerFactory.create(category: "socket")
-    
+
     private var connections: Set<Connection> = []
     private var isRunning = false
-    
-    public init(socketPath: String, requestHandler: RequestHandler) {
+
+    public init(socketPath: String, requestHandler: any RequestHandling) {
         self.socketPath = socketPath
         self.requestHandler = requestHandler
     }
@@ -144,13 +144,13 @@ public actor SocketServer {
 private final class Connection: Hashable, @unchecked Sendable {
     let id = UUID()
     private let nwConnection: NWConnection
-    private let requestHandler: RequestHandler
+    private let requestHandler: any RequestHandling
     private let logger: AppLogger
     private var completionHandler: (() -> Void)?
-    
+
     init(
         nwConnection: NWConnection,
-        requestHandler: RequestHandler,
+        requestHandler: any RequestHandling,
         logger: AppLogger
     ) {
         self.nwConnection = nwConnection

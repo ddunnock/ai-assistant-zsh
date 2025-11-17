@@ -32,6 +32,11 @@ let package = Package(
             url: "https://github.com/apple/swift-argument-parser.git",
             from: "1.2.0"
         ),
+        // Cryptography for cache keys (SHA256)
+        .package(
+            url: "https://github.com/apple/swift-crypto.git",
+            from: "3.0.0"
+        ),
     ],
     targets: [
         // Main executable
@@ -51,6 +56,7 @@ let package = Package(
             dependencies: [
                 .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "Crypto", package: "swift-crypto"),
             ],
             path: "Sources/AIShellCore"
         ),
