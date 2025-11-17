@@ -1,0 +1,272 @@
+// Sources/AIShellCore/Cache/ResponseCache.swift
+
+import Foundation
+import Crypto
+
+/// Cached response entry
+public struct CachedResponse: Codable {
+    public let key: String
+    public let response: String
+    public let timestamp: Date
+    public let hitCount: Int
+    public let metadata: [String: String]
+
+    public init(
+        key: String,
+        response: String,
+        timestamp: Date = Date(),
+        hitCount: Int = 0,
+        metadata: [String: String] = [:]
+    ) {
+        self.key = key
+        self.response = response
+        self.timestamp = timestamp
+        self.hitCount = hitCount
+        self.metadata = metadata
+    }
+}
+
+/// Response cache for reducing duplicate LLM calls
+public actor ResponseCache {
+    private var cache: [String: CachedResponse] = [:]
+    private let storageURL: URL?
+    private let logger = LoggerFactory.create(category: "cache")
+
+    // Configuration
+    private let maxCacheSize = 500
+    private let maxAge: TimeInterval = 86400 * 7  // 7 days
+    private let enablePersistence: Bool
+
+    public init(storageURL: URL?, enablePersistence: Bool = true) {
+        self.storageURL = storageURL
+        self.enablePersistence = enablePersistence
+    }
+
+    // MARK: - Cache Operations
+
+    /// Get cached response if available and fresh
+    public func get(_ key: String) -> String? {
+        guard let entry = cache[key] else { return nil }
+
+        // Check if expired
+        if Date().timeIntervalSince(entry.timestamp) > maxAge {
+            cache.removeValue(forKey: key)
+            logger.debug("Cache entry expired", metadata: ["key": key])
+            return nil
+        }
+
+        // Increment hit count
+        var updated = entry
+        updated = CachedResponse(
+            key: updated.key,
+            response: updated.response,
+            timestamp: updated.timestamp,
+            hitCount: updated.hitCount + 1,
+            metadata: updated.metadata
+        )
+        cache[key] = updated
+
+        logger.debug("Cache hit", metadata: [
+            "key": key,
+            "hit_count": String(updated.hitCount)
+        ])
+
+        return entry.response
+    }
+
+    /// Set cache entry
+    public func set(_ key: String, response: String, metadata: [String: String] = [:]) {
+        let entry = CachedResponse(
+            key: key,
+            response: response,
+            metadata: metadata
+        )
+
+        cache[key] = entry
+
+        // Prune if needed
+        if cache.count > maxCacheSize {
+            pruneCache()
+        }
+
+        logger.debug("Cache set", metadata: ["key": key])
+    }
+
+    /// Create cache key from request components
+    public func createKey(type: String, content: String, context: [String: String] = [:]) -> String {
+        var components = [type, content]
+
+        // Add relevant context to key
+        for key in context.keys.sorted() {
+            if let value = context[key], !value.isEmpty {
+                components.append("\(key):\(value)")
+            }
+        }
+
+        let combined = components.joined(separator: "|")
+
+        // Create hash
+        let data = Data(combined.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Invalidate cache entry
+    public func invalidate(_ key: String) {
+        cache.removeValue(forKey: key)
+        logger.debug("Cache invalidated", metadata: ["key": key])
+    }
+
+    /// Clear all cache
+    public func clear() {
+        cache.removeAll()
+        logger.info("Cache cleared")
+    }
+
+    /// Get cache statistics
+    public func getStatistics() -> CacheStatistics {
+        let totalEntries = cache.count
+        let totalHits = cache.values.reduce(0) { $0 + $1.hitCount }
+
+        var ageDistribution: [String: Int] = [
+            "< 1h": 0,
+            "< 1d": 0,
+            "< 7d": 0,
+            "> 7d": 0
+        ]
+
+        let now = Date()
+        for entry in cache.values {
+            let age = now.timeIntervalSince(entry.timestamp)
+
+            if age < 3600 {
+                ageDistribution["< 1h"]! += 1
+            } else if age < 86400 {
+                ageDistribution["< 1d"]! += 1
+            } else if age < 86400 * 7 {
+                ageDistribution["< 7d"]! += 1
+            } else {
+                ageDistribution["> 7d"]! += 1
+            }
+        }
+
+        return CacheStatistics(
+            totalEntries: totalEntries,
+            totalHits: totalHits,
+            ageDistribution: ageDistribution
+        )
+    }
+
+    // MARK: - Cache Management
+
+    private func pruneCache() {
+        // Sort by score (hitCount * recency)
+        let sorted = cache.values.sorted { entry1, entry2 in
+            let score1 = calculateScore(entry1)
+            let score2 = calculateScore(entry2)
+            return score1 > score2
+        }
+
+        // Keep top entries
+        let toKeep = sorted.prefix(maxCacheSize)
+        cache = Dictionary(uniqueKeysWithValues: toKeep.map { ($0.key, $0) })
+
+        logger.debug("Pruned cache", metadata: [
+            "kept": String(cache.count)
+        ])
+    }
+
+    private func calculateScore(_ entry: CachedResponse) -> Double {
+        let hitWeight = 0.6
+        let recencyWeight = 0.4
+
+        let hitScore = Double(entry.hitCount)
+        let recencyScore = 1.0 - min(Date().timeIntervalSince(entry.timestamp) / maxAge, 1.0)
+
+        return hitScore * hitWeight + recencyScore * recencyWeight * 10
+    }
+
+    // MARK: - Persistence
+
+    /// Save cache to disk
+    public func save() async throws {
+        guard enablePersistence, let storageURL = storageURL else { return }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let entries = Array(cache.values)
+        let encoded = try encoder.encode(entries)
+
+        try FileManager.default.createDirectory(
+            at: storageURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        try encoded.write(to: storageURL)
+
+        logger.info("Saved cache to disk", metadata: [
+            "path": storageURL.path,
+            "entry_count": String(cache.count)
+        ])
+    }
+
+    /// Load cache from disk
+    public func load() async throws {
+        guard enablePersistence, let storageURL = storageURL else { return }
+        guard FileManager.default.fileExists(atPath: storageURL.path) else {
+            logger.info("No existing cache found")
+            return
+        }
+
+        let data = try Data(contentsOf: storageURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let entries = try decoder.decode([CachedResponse].self, from: data)
+
+        // Filter out expired entries
+        let fresh = entries.filter { entry in
+            Date().timeIntervalSince(entry.timestamp) <= maxAge
+        }
+
+        cache = Dictionary(uniqueKeysWithValues: fresh.map { ($0.key, $0) })
+
+        logger.info("Loaded cache from disk", metadata: [
+            "path": storageURL.path,
+            "entry_count": String(cache.count)
+        ])
+    }
+
+    /// Clean expired entries
+    public func cleanExpired() {
+        let before = cache.count
+
+        cache = cache.filter { _, entry in
+            Date().timeIntervalSince(entry.timestamp) <= maxAge
+        }
+
+        let removed = before - cache.count
+
+        if removed > 0 {
+            logger.info("Cleaned expired entries", metadata: [
+                "removed": String(removed)
+            ])
+        }
+    }
+}
+
+// MARK: - Supporting Types
+
+public struct CacheStatistics {
+    public let totalEntries: Int
+    public let totalHits: Int
+    public let ageDistribution: [String: Int]
+
+    public init(totalEntries: Int, totalHits: Int, ageDistribution: [String: Int]) {
+        self.totalEntries = totalEntries
+        self.totalHits = totalHits
+        self.ageDistribution = ageDistribution
+    }
+}

@@ -163,10 +163,52 @@ public struct OllamaModelInfo: Codable {
     let name: String
     let modifiedAt: String
     let size: Int64
-    
+
     enum CodingKeys: String, CodingKey {
         case name
         case modifiedAt = "modified_at"
         case size
+    }
+}
+
+// MARK: - Embeddings
+
+public struct OllamaEmbeddingRequest: Codable {
+    let model: String
+    let prompt: String
+
+    public init(model: String, prompt: String) {
+        self.model = model
+        self.prompt = prompt
+    }
+}
+
+public struct OllamaEmbeddingResponse: Codable {
+    let embedding: [Double]
+
+    public init(embedding: [Double]) {
+        self.embedding = embedding
+    }
+}
+
+// MARK: - Streaming
+
+/// Callback for streaming responses
+public typealias StreamCallback = (String) -> Void
+
+/// Stream chunk for generate/chat endpoints
+public struct OllamaStreamChunk: Codable {
+    let model: String
+    let createdAt: String
+    let response: String?
+    let message: OllamaChatMessage?
+    let done: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case model
+        case createdAt = "created_at"
+        case response
+        case message
+        case done
     }
 }
