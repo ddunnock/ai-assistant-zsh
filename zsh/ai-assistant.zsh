@@ -28,26 +28,31 @@ _ai_shell_send_request() {
         return 1
     fi
 
-    # Use netcat to communicate with Unix socket
-    # Send length-prefixed JSON message
+    # Find the Python client helper
+    local client_script=""
+    local script_dir="${0:A:h}"  # Directory of this script
+
+    # Try to find ai-shell-client.py in common locations
+    if [[ -f "${script_dir}/ai-shell-client.py" ]]; then
+        client_script="${script_dir}/ai-shell-client.py"
+    elif [[ -f "${HOME}/.zsh/ai-shell/ai-shell-client.py" ]]; then
+        client_script="${HOME}/.zsh/ai-shell/ai-shell-client.py"
+    elif [[ -f "${HOME}/.oh-my-zsh/custom/plugins/ai-shell/ai-shell-client.py" ]]; then
+        client_script="${HOME}/.oh-my-zsh/custom/plugins/ai-shell/ai-shell-client.py"
+    fi
+
+    if [[ -z "$client_script" ]]; then
+        [[ $AI_SHELL_DEBUG -eq 1 ]] && echo "Error: ai-shell-client.py not found" >&2
+        return 1
+    fi
+
+    # Send request using Python client
     local response
-    if command -v nc >/dev/null 2>&1; then
-        # Calculate length and create length prefix (4 bytes, big-endian)
-        local length=${#payload}
-        local prefix=$(printf '\x%02x\x%02x\x%02x\x%02x' \
-            $(( (length >> 24) & 0xFF )) \
-            $(( (length >> 16) & 0xFF )) \
-            $(( (length >> 8) & 0xFF )) \
-            $(( length & 0xFF )) )
+    response=$(python3 "$client_script" "$socket" "$payload" 2>/dev/null)
 
-        # Send request and read response
-        response=$(echo -n "${prefix}${payload}" | nc -U "$socket" 2>/dev/null)
-
-        if [[ $? -eq 0 && -n "$response" ]]; then
-            # Strip length prefix from response (first 4 bytes)
-            echo "${response:4}"
-            return 0
-        fi
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        echo "$response"
+        return 0
     fi
 
     [[ $AI_SHELL_DEBUG -eq 1 ]] && echo "Error: Failed to communicate with daemon" >&2
@@ -394,14 +399,19 @@ _ai_shell_check_dependencies() {
     local missing=()
 
     command -v jq >/dev/null 2>&1 || missing+=("jq")
-    command -v nc >/dev/null 2>&1 || missing+=("netcat")
+    command -v python3 >/dev/null 2>&1 || missing+=("python3")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo "Warning: AI Shell Assistant requires the following dependencies:" >&2
         printf '  - %s\n' "${missing[@]}" >&2
         echo "" >&2
-        echo "Install with:" >&2
-        echo "  brew install ${missing[*]}" >&2
+        if [[ " ${missing[@]} " =~ " python3 " ]]; then
+            echo "Python 3 should be installed by default on macOS" >&2
+        fi
+        if [[ " ${missing[@]} " =~ " jq " ]]; then
+            echo "Install jq with:" >&2
+            echo "  brew install jq" >&2
+        fi
         return 1
     fi
 
