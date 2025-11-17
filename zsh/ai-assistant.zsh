@@ -163,8 +163,8 @@ ai_shell_suggest() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local status=$(echo "$response" | jq -r '.status // "error"')
-        if [[ "$status" == "success" ]]; then
+        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        if [[ "$response_status" == "success" ]]; then
             echo "$response" | jq -r '.payload.suggestion // ""'
             return 0
         else
