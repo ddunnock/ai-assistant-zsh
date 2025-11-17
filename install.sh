@@ -117,7 +117,8 @@ build_daemon() {
 
     ./build.sh --${BUILD_TYPE}
 
-    local binary_path=".build/${BUILD_TYPE}/ai-shell-daemon"
+    # Swift PM uses the target name (AIShellDaemon), not the product name
+    local binary_path=".build/${BUILD_TYPE}/AIShellDaemon"
     if [[ ! -f "$binary_path" ]]; then
         error "Build failed: binary not found at $binary_path"
         exit 1
@@ -130,7 +131,8 @@ build_daemon() {
 install_daemon() {
     section "Installing Daemon Binary"
 
-    local binary_path=".build/${BUILD_TYPE}/ai-shell-daemon"
+    # Swift PM uses the target name (AIShellDaemon), not the product name
+    local binary_path=".build/${BUILD_TYPE}/AIShellDaemon"
     local target_path="${INSTALL_DIR}/ai-shell-daemon"
 
     info "Installing to: $target_path"
