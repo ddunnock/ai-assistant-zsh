@@ -52,6 +52,14 @@ public actor RequestHandler {
             return try await handleTask(request)
         case .health:
             return await handleHealth(request)
+
+        // Phase 2 features - not supported in basic handler
+        case .remember, .forget, .recall, .index, .search:
+            return Response.error(
+                requestId: request.id,
+                code: "FEATURE_NOT_SUPPORTED",
+                message: "Phase 2 features require EnhancedRequestHandler"
+            )
         }
     }
     

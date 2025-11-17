@@ -76,6 +76,7 @@ extension Response {
         suggestion: String? = nil,
         explanation: String? = nil,
         commands: [String]? = nil,
+        metadata: [String: String]? = nil,
         processingTime: TimeInterval? = nil
     ) -> Response {
         Response(
@@ -84,7 +85,8 @@ extension Response {
             payload: Payload(
                 suggestion: suggestion,
                 explanation: explanation,
-                commands: commands
+                commands: commands,
+                metadata: metadata
             ),
             processingTime: processingTime
         )
