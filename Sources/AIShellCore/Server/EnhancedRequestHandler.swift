@@ -473,7 +473,7 @@ public actor EnhancedRequestHandler {
     }
 
     private func handleForget(_ request: Request) async throws -> Response {
-        guard enableMemory, let memoryStore = memoryStore else {
+        guard enableMemory, let _ = memoryStore else {
             throw AIShellError.requestError("Memory is not enabled")
         }
 
