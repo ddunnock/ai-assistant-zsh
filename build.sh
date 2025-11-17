@@ -123,8 +123,13 @@ test() {
 
 # Show build information
 show_build_info() {
-    # Swift PM uses the target name (AIShellDaemon), not the product name
-    local binary_path=".build/${BUILD_TYPE}/AIShellDaemon"
+    # On macOS with Xcode, Swift PM uses a different path
+    local binary_path
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        binary_path=".build/apple/Products/${BUILD_TYPE^}/ai-shell-daemon"
+    else
+        binary_path=".build/${BUILD_TYPE}/AIShellDaemon"
+    fi
 
     if [[ ! -f "$binary_path" ]]; then
         error "Binary not found at $binary_path"
