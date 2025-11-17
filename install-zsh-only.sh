@@ -8,9 +8,11 @@ echo ""
 # Create directory
 mkdir -p ~/.zsh/ai-shell
 
-# Copy plugin file
+# Copy plugin files
 cp "$(dirname "$0")/zsh/ai-assistant.zsh" ~/.zsh/ai-shell/ai-assistant.zsh
+cp "$(dirname "$0")/zsh/ai-shell-client.py" ~/.zsh/ai-shell/ai-shell-client.py
 chmod +x ~/.zsh/ai-shell/ai-assistant.zsh
+chmod +x ~/.zsh/ai-shell/ai-shell-client.py
 
 echo "✓ Installed plugin to ~/.zsh/ai-shell/"
 echo ""
