@@ -209,13 +209,13 @@ actor DaemonService {
     
     func run() async throws {
         try await start()
-        
+
         // Keep running until interrupted
         logger.info("Daemon running. Press Ctrl+C to stop.")
-        
-        // Wait forever (until signal)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            // Continuation will never resume, keeping the task alive until cancelled
+
+        // Wait indefinitely (until process is killed or task is cancelled)
+        while isRunning {
+            try await Task.sleep(for: .seconds(3600)) // Sleep 1 hour at a time
         }
     }
     
