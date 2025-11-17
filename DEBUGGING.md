@@ -16,11 +16,17 @@
 
 **Issue:** After fixing the entry point, the daemon failed with "Invalid argument" socket error.
 
-**Root Cause:** SocketServer was using incorrect NWListener pattern for Unix domain sockets.
+**Root Cause:** Network framework doesn't provide straightforward API for Unix domain socket servers.
 
-**Solution:** Use `NWParameters.unix` and pass endpoint in constructor: `NWListener(using: parameters, on: .unix(path:))`
+**Solution:** Rewrote SocketServer to use traditional BSD sockets (socket/bind/listen/accept) instead of Network framework. This is the standard, well-tested approach for Unix domain sockets.
 
-**Status:** ✅ FIXED - Socket should now create properly.
+**Implementation:**
+- Direct BSD socket API: `socket(AF_UNIX, SOCK_STREAM, 0)`
+- Bind to `sockaddr_un` structure
+- Non-blocking accept loop with async/await
+- Proper framed message handling
+
+**Status:** ✅ FIXED - BSD socket implementation is reliable and portable.
 
 ---
 
