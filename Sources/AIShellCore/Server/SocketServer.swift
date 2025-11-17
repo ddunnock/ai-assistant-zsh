@@ -45,13 +45,13 @@ public actor SocketServer {
         // Create socket
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            throw AIShellError.serverError("Failed to create socket: \(String(cString: strerror(errno)))")
+            throw AIShellError.socketError("Failed to create socket: \(String(cString: strerror(errno)))")
         }
 
         // Set socket to non-blocking
         var flags = fcntl(fd, F_GETFL, 0)
         flags |= O_NONBLOCK
-        fcntl(fd, F_SETFL, flags)
+        _ = fcntl(fd, F_SETFL, flags)
 
         // Bind socket
         var addr = sockaddr_un()
@@ -59,7 +59,7 @@ public actor SocketServer {
 
         guard socketPath.count < MemoryLayout.size(ofValue: addr.sun_path) else {
             Darwin.close(fd)
-            throw AIShellError.serverError("Socket path too long")
+            throw AIShellError.socketError("Socket path too long")
         }
 
         _ = withUnsafeMutablePointer(to: &addr.sun_path.0) { ptr in
@@ -76,14 +76,14 @@ public actor SocketServer {
 
         guard bindResult >= 0 else {
             Darwin.close(fd)
-            throw AIShellError.serverError("Failed to bind socket: \(String(cString: strerror(errno)))")
+            throw AIShellError.socketError("Failed to bind socket: \(String(cString: strerror(errno)))")
         }
 
         // Listen
         guard listen(fd, 128) >= 0 else {
             Darwin.close(fd)
             try? FileManager.default.removeItem(atPath: socketPath)
-            throw AIShellError.serverError("Failed to listen on socket: \(String(cString: strerror(errno)))")
+            throw AIShellError.socketError("Failed to listen on socket: \(String(cString: strerror(errno)))")
         }
 
         // Set permissions
@@ -198,7 +198,7 @@ private final class Connection: Hashable, @unchecked Sendable {
         // Set socket to non-blocking
         var flags = fcntl(socketFD, F_GETFL, 0)
         flags |= O_NONBLOCK
-        fcntl(socketFD, F_SETFL, flags)
+        _ = fcntl(socketFD, F_SETFL, flags)
     }
 
     func start() async {
@@ -252,7 +252,7 @@ private final class Connection: Hashable, @unchecked Sendable {
                 try? await Task.sleep(nanoseconds: 1_000_000) // 1ms
             } else {
                 // Error
-                throw AIShellError.serverError("Read failed: \(String(cString: strerror(errno)))")
+                throw AIShellError.socketError("Read failed: \(String(cString: strerror(errno)))")
             }
         }
 
@@ -274,7 +274,7 @@ private final class Connection: Hashable, @unchecked Sendable {
                 // Would block, wait and retry
                 try? await Task.sleep(nanoseconds: 1_000_000) // 1ms
             } else {
-                throw AIShellError.serverError("Write failed: \(String(cString: strerror(errno)))")
+                throw AIShellError.socketError("Write failed: \(String(cString: strerror(errno)))")
             }
         }
     }
