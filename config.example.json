@@ -2,5 +2,22 @@
   "socketPath": "/tmp/ai-shell.sock",
   "ollamaURL": "http://localhost:11434",
   "model": "llama3.1:8b",
-  "logLevel": "info"
+  "logLevel": "info",
+
+  "_comment_phase2": "Phase 2 features: Memory, RAG, Caching, Streaming",
+  "enableMemory": true,
+  "enableRAG": true,
+  "enableCache": true,
+  "enableStreaming": false,
+
+  "_comment_storage": "Optional: Custom storage paths (defaults to ~/.config/ai-shell/)",
+  "memoryStoragePath": null,
+  "ragStoragePath": null,
+  "cacheStoragePath": null,
+  "promptsStoragePath": null,
+
+  "_comment_tuning": "Optional: Fine-tuning parameters",
+  "maxMemoryAge": 24,
+  "maxCacheAge": 7,
+  "ragMinSimilarity": 0.6
 }

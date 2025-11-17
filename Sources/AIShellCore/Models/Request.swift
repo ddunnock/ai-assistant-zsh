@@ -26,6 +26,15 @@ public struct Request: Codable, Sendable {
         case explain        // Explain command
         case task           // Natural language task
         case health         // Health check
+
+        // Phase 2: Memory management
+        case remember       // Store a fact in long-term memory
+        case forget         // Remove from memory
+        case recall         // Query memory
+
+        // Phase 2: RAG operations
+        case index          // Index documentation/files
+        case search         // Search indexed documents
     }
     
     public struct Payload: Codable, Sendable {
@@ -33,17 +42,37 @@ public struct Request: Codable, Sendable {
         public let workingDirectory: String?
         public let task: String?
         public let context: ContextInfo?
-        
+
+        // Phase 2 fields
+        public let fact: String?            // For remember
+        public let query: String?           // For recall/search
+        public let filePath: String?        // For index
+        public let content: String?         // For index
+        public let importance: Double?      // For remember
+        public let tags: [String]?          // For remember/index
+
         public init(
             command: String? = nil,
             workingDirectory: String? = nil,
             task: String? = nil,
-            context: ContextInfo? = nil
+            context: ContextInfo? = nil,
+            fact: String? = nil,
+            query: String? = nil,
+            filePath: String? = nil,
+            content: String? = nil,
+            importance: Double? = nil,
+            tags: [String]? = nil
         ) {
             self.command = command
             self.workingDirectory = workingDirectory
             self.task = task
             self.context = context
+            self.fact = fact
+            self.query = query
+            self.filePath = filePath
+            self.content = content
+            self.importance = importance
+            self.tags = tags
         }
     }
     
@@ -98,6 +127,44 @@ extension Request {
         Request(
             type: .health,
             payload: Payload()
+        )
+    }
+
+    // Phase 2 convenience initializers
+
+    public static func remember(fact: String, importance: Double = 0.7, tags: [String] = []) -> Request {
+        Request(
+            type: .remember,
+            payload: Payload(
+                fact: fact,
+                importance: importance,
+                tags: tags
+            )
+        )
+    }
+
+    public static func recall(query: String) -> Request {
+        Request(
+            type: .recall,
+            payload: Payload(query: query)
+        )
+    }
+
+    public static func index(filePath: String, content: String, workingDirectory: String) -> Request {
+        Request(
+            type: .index,
+            payload: Payload(
+                workingDirectory: workingDirectory,
+                filePath: filePath,
+                content: content
+            )
+        )
+    }
+
+    public static func search(query: String) -> Request {
+        Request(
+            type: .search,
+            payload: Payload(query: query)
         )
     }
 }
