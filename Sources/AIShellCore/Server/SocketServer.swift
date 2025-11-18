@@ -286,9 +286,9 @@ private final class Connection: Hashable, @unchecked Sendable {
                 logger.debug("Received JSON", metadata: ["json": jsonString])
             }
 
-            // Configure decoder for ISO8601 dates
+            // Configure decoder for ISO8601 dates with fractional seconds support
             let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            decoder.configureDateDecoding()
 
             let request = try decoder.decode(Request.self, from: data)
 
@@ -299,9 +299,9 @@ private final class Connection: Hashable, @unchecked Sendable {
 
             let response = await requestHandler.handle(request)
 
-            // Configure encoder for ISO8601 dates
+            // Configure encoder for ISO8601 dates with fractional seconds
             let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
+            encoder.configureDateEncoding()
 
             let responseData = try encoder.encode(response)
 
@@ -329,7 +329,7 @@ private final class Connection: Hashable, @unchecked Sendable {
             )
 
             let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
+            encoder.configureDateEncoding()
 
             if let errorData = try? encoder.encode(errorResponse) {
                 let framedMessage = FramedMessage(data: errorData)
