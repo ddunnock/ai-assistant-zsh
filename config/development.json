@@ -1,0 +1,13 @@
+{
+  "socketPath": "/tmp/ai-shell.sock",
+  "ollamaURL": "http://localhost:11434",
+  "model": "llama3.1:8b",
+  "logLevel": "debug",
+  "enableMemory": true,
+  "enableRAG": true,
+  "enableCache": false,
+  "enableStreaming": false,
+  "maxMemoryAge": 24,
+  "maxCacheAge": 1,
+  "ragMinSimilarity": 0.5
+}

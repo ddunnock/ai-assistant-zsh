@@ -24,6 +24,75 @@ struct Configuration: Codable {
     let maxCacheAge: Int?   // days
     let ragMinSimilarity: Double?
 
+    /// Valid log level values
+    private static let validLogLevels = Set(["debug", "info", "warning", "error"])
+
+    /// Validate configuration values
+    func validate() throws {
+        // Validate log level
+        guard Self.validLogLevels.contains(logLevel.lowercased()) else {
+            throw ConfigurationError.invalidLogLevel(
+                logLevel,
+                valid: Array(Self.validLogLevels).sorted()
+            )
+        }
+
+        // Validate Ollama URL format
+        guard let url = URL(string: ollamaURL), url.scheme == "http" || url.scheme == "https" else {
+            throw ConfigurationError.invalidURL("ollamaURL", ollamaURL)
+        }
+
+        // Validate model is not empty
+        guard !model.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw ConfigurationError.emptyValue("model")
+        }
+
+        // Validate socket path is not empty
+        guard !socketPath.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw ConfigurationError.emptyValue("socketPath")
+        }
+
+        // Validate numeric ranges if provided
+        if let maxMemoryAge = maxMemoryAge, maxMemoryAge < 1 {
+            throw ConfigurationError.invalidRange("maxMemoryAge", min: 1, max: nil)
+        }
+
+        if let maxCacheAge = maxCacheAge, maxCacheAge < 1 {
+            throw ConfigurationError.invalidRange("maxCacheAge", min: 1, max: nil)
+        }
+
+        if let ragMinSimilarity = ragMinSimilarity {
+            guard ragMinSimilarity >= 0.0 && ragMinSimilarity <= 1.0 else {
+                throw ConfigurationError.invalidRange("ragMinSimilarity", min: 0.0, max: 1.0)
+            }
+        }
+    }
+
+    /// Configuration-specific errors
+    enum ConfigurationError: Error, CustomStringConvertible {
+        case invalidLogLevel(String, valid: [String])
+        case invalidURL(String, String)
+        case emptyValue(String)
+        case invalidRange(String, min: Any, max: Any?)
+
+        var description: String {
+            switch self {
+            case .invalidLogLevel(let level, let valid):
+                return "Invalid log level '\(level)'. Valid values: \(valid.joined(separator: ", "))"
+            case .invalidURL(let field, let value):
+                return "Invalid URL for '\(field)': \(value). Must start with http:// or https://"
+            case .emptyValue(let field):
+                return "Configuration field '\(field)' cannot be empty"
+            case .invalidRange(let field, let min, let max):
+                if let max = max {
+                    return "Value for '\(field)' must be between \(min) and \(max)"
+                } else {
+                    return "Value for '\(field)' must be at least \(min)"
+                }
+            }
+        }
+    }
+
     static let `default` = Configuration(
         socketPath: "/tmp/ai-shell.sock",
         ollamaURL: "http://localhost:11434",

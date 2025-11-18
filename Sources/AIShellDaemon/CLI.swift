@@ -21,30 +21,25 @@ public struct AIShellDaemonCLI: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Verbose logging")
     var verbose: Bool = false
 
+    @Flag(name: .shortAndLong, help: "Quiet mode (suppress banner)")
+    var quiet: Bool = false
+
     public init() {}
 
     public mutating func validate() throws {
-        print("DEBUG: validate() called")
-        print("DEBUG: config = \(String(describing: config))")
-        print("DEBUG: socket = \(String(describing: socket))")
-        print("DEBUG: verbose = \(verbose)")
+        // Validation passed - no action needed in production
     }
 
     public func run() async throws {
-        print("DEBUG: run() called!")
-        print("🚀 AI Shell Assistant Daemon")
-        print("Version: \(Self.configuration.version)")
-        print()
-
-        print("DEBUG: About to load configuration from: \(String(describing: config))")
-        // Load configuration
+        // Load configuration first
         var configuration: Configuration
         do {
             configuration = try Configuration.load(from: config)
-            print("DEBUG: Configuration loaded successfully")
+            // Validate loaded configuration
+            try configuration.validate()
         } catch {
-            print("DEBUG: Configuration loading failed: \(error)")
-            throw error
+            print("❌ Error loading configuration: \(error)")
+            throw ExitCode.failure
         }
 
         // Override with command line options
@@ -66,19 +61,65 @@ public struct AIShellDaemonCLI: AsyncParsableCommand {
                 maxCacheAge: configuration.maxCacheAge,
                 ragMinSimilarity: configuration.ragMinSimilarity
             )
+        } else if verbose {
+            // Apply verbose flag even without socket override
+            configuration = Configuration(
+                socketPath: configuration.socketPath,
+                ollamaURL: configuration.ollamaURL,
+                model: configuration.model,
+                logLevel: "debug",
+                enableMemory: configuration.enableMemory,
+                enableRAG: configuration.enableRAG,
+                enableCache: configuration.enableCache,
+                enableStreaming: configuration.enableStreaming,
+                memoryStoragePath: configuration.memoryStoragePath,
+                ragStoragePath: configuration.ragStoragePath,
+                cacheStoragePath: configuration.cacheStoragePath,
+                promptsStoragePath: configuration.promptsStoragePath,
+                maxMemoryAge: configuration.maxMemoryAge,
+                maxCacheAge: configuration.maxCacheAge,
+                ragMinSimilarity: configuration.ragMinSimilarity
+            )
+        }
+
+        // Validate final configuration after overrides
+        do {
+            try configuration.validate()
+        } catch {
+            print("❌ Configuration validation failed: \(error)")
+            throw ExitCode.failure
+        }
+
+        // Configure global logger with the finalized log level
+        LoggerFactory.configure(logLevel: configuration.logLevel)
+
+        // Create logger for CLI
+        let logger = LoggerFactory.create(category: "cli")
+
+        logger.debug("Configuration loaded", metadata: [
+            "socketPath": configuration.socketPath,
+            "ollamaURL": configuration.ollamaURL,
+            "model": configuration.model,
+            "logLevel": configuration.logLevel
+        ])
+
+        // Show startup banner unless quiet mode
+        if !quiet {
+            print("🚀 AI Shell Assistant Daemon")
+            print("Version: \(Self.configuration.version)")
+            print()
         }
 
         // Create and run daemon
-        print("DEBUG: Creating DaemonService")
+        logger.debug("Creating DaemonService")
         let daemon = DaemonService(configuration: configuration)
-        print("DEBUG: DaemonService created, about to call daemon.run()")
 
         do {
-            print("DEBUG: Calling daemon.run()")
+            logger.debug("Starting daemon service")
             try await daemon.run()
-            print("DEBUG: daemon.run() completed")
+            logger.info("Daemon service completed normally")
         } catch {
-            print("DEBUG: daemon.run() threw error: \(error)")
+            logger.error("Daemon service failed", error: error)
             print("❌ Error: \(error.localizedDescription)")
             throw ExitCode.failure
         }
