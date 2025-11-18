@@ -37,19 +37,25 @@ public struct Response: Codable, Sendable {
         public let suggestion: String?
         public let explanation: String?
         public let commands: [String]?
+        public let completion: String?      // For autocomplete
+        public let confidence: Double?      // For autocomplete scoring (0.0-1.0)
         public let error: ErrorInfo?
         public let metadata: [String: String]?
-        
+
         public init(
             suggestion: String? = nil,
             explanation: String? = nil,
             commands: [String]? = nil,
+            completion: String? = nil,
+            confidence: Double? = nil,
             error: ErrorInfo? = nil,
             metadata: [String: String]? = nil
         ) {
             self.suggestion = suggestion
             self.explanation = explanation
             self.commands = commands
+            self.completion = completion
+            self.confidence = confidence
             self.error = error
             self.metadata = metadata
         }
@@ -76,6 +82,8 @@ extension Response {
         suggestion: String? = nil,
         explanation: String? = nil,
         commands: [String]? = nil,
+        completion: String? = nil,
+        confidence: Double? = nil,
         metadata: [String: String]? = nil,
         processingTime: TimeInterval? = nil
     ) -> Response {
@@ -86,6 +94,8 @@ extension Response {
                 suggestion: suggestion,
                 explanation: explanation,
                 commands: commands,
+                completion: completion,
+                confidence: confidence,
                 metadata: metadata
             ),
             processingTime: processingTime

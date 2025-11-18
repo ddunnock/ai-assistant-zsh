@@ -26,6 +26,7 @@ public struct Request: Codable, Sendable {
         case explain        // Explain command
         case task           // Natural language task
         case health         // Health check
+        case autocomplete   // Automatic code completion
 
         // Phase 2: Memory management
         case remember       // Store a fact in long-term memory
@@ -165,6 +166,17 @@ extension Request {
         Request(
             type: .search,
             payload: Payload(query: query)
+        )
+    }
+
+    public static func autocomplete(partialCommand: String, workingDirectory: String, context: ContextInfo? = nil) -> Request {
+        Request(
+            type: .autocomplete,
+            payload: Payload(
+                command: partialCommand,
+                workingDirectory: workingDirectory,
+                context: context
+            )
         )
     }
 }

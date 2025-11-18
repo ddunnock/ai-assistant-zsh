@@ -9,9 +9,19 @@ AI_SHELL_ENABLE_INLINE="${AI_SHELL_ENABLE_INLINE:-1}"         # Enable inline su
 AI_SHELL_DEBUG="${AI_SHELL_DEBUG:-0}"                         # Debug mode
 AI_SHELL_SHOW_TIPS="${AI_SHELL_SHOW_TIPS:-1}"                # Show next-step recommendations
 
+# Autocomplete Configuration
+AI_SHELL_ENABLE_AUTOCOMPLETE="${AI_SHELL_ENABLE_AUTOCOMPLETE:-1}"  # Enable automatic code completion
+AI_SHELL_AUTOCOMPLETE_MIN_LENGTH="${AI_SHELL_AUTOCOMPLETE_MIN_LENGTH:-10}"  # Minimum command length
+AI_SHELL_AUTOCOMPLETE_MIN_CONFIDENCE="${AI_SHELL_AUTOCOMPLETE_MIN_CONFIDENCE:-0.6}"  # Minimum confidence (0.0-1.0)
+AI_SHELL_AUTOCOMPLETE_DEBOUNCE="${AI_SHELL_AUTOCOMPLETE_DEBOUNCE:-0.5}"  # Debounce delay in seconds
+
 # Internal state
 typeset -g _ai_shell_suggestion=""
 typeset -g _ai_shell_suggestion_pending=0
+typeset -g _ai_shell_autocomplete=""
+typeset -g _ai_shell_autocomplete_pending=0
+typeset -g _ai_shell_last_command=""
+typeset -g _ai_shell_last_autocomplete_time=0
 
 # ============================================================================
 # Next-Step Recommendations
@@ -390,6 +400,132 @@ _ai_shell_inline_suggest() {
     ) &!
 }
 
+# ============================================================================
+# Autocomplete Functions
+# ============================================================================
+
+# Check if autocomplete should trigger for current buffer
+_ai_shell_should_autocomplete() {
+    [[ "$AI_SHELL_ENABLE_AUTOCOMPLETE" != "1" ]] && return 1
+
+    local cmd="$BUFFER"
+    local cmd_len=${#cmd}
+
+    # Too short?
+    [[ $cmd_len -lt $AI_SHELL_AUTOCOMPLETE_MIN_LENGTH ]] && return 1
+
+    # Same as last command? Skip
+    [[ "$cmd" == "$_ai_shell_last_command" ]] && return 1
+
+    # Debounce: check if enough time has passed
+    local now=$(date +%s)
+    local elapsed=$((now - _ai_shell_last_autocomplete_time))
+
+    # Convert debounce to integer (floor)
+    local debounce_int=${AI_SHELL_AUTOCOMPLETE_DEBOUNCE%.*}
+    [[ $elapsed -lt $debounce_int ]] && return 1
+
+    return 0
+}
+
+# Request autocomplete from daemon
+_ai_shell_request_autocomplete() {
+    local partial_cmd="$1"
+
+    # Build autocomplete request
+    local id="req-$(date +%s)-$$"
+    local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
+    [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    local pwd_safe="$PWD"
+
+    local request=$(cat <<EOF
+{
+  "id": "$id",
+  "type": "autocomplete",
+  "payload": {
+    "command": $(echo -n "$partial_cmd" | jq -R -s '.'),
+    "workingDirectory": "$pwd_safe"
+  },
+  "timestamp": "$timestamp"
+}
+EOF
+    )
+
+    local response=$(_ai_shell_send_request "$request")
+
+    if [[ $? -eq 0 && -n "$response" ]]; then
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
+
+        if [[ "$response_status" == "success" ]]; then
+            local completion=$(printf '%s\n' "$response" | jq -r '.payload.completion // ""')
+            local confidence=$(printf '%s\n' "$response" | jq -r '.payload.confidence // 0')
+
+            # Check confidence threshold
+            local meets_threshold=$(python3 -c "print(1 if float('$confidence') >= float('$AI_SHELL_AUTOCOMPLETE_MIN_CONFIDENCE') else 0)" 2>/dev/null)
+
+            if [[ "$meets_threshold" == "1" && -n "$completion" ]]; then
+                echo "$completion"
+                return 0
+            fi
+        fi
+    fi
+
+    return 1
+}
+
+# Display autocomplete inline
+_ai_shell_show_autocomplete() {
+    local completion="$1"
+
+    # Display inline using ZSH's POSTDISPLAY
+    POSTDISPLAY="$(tput setaf $AI_SHELL_SUGGESTION_COLOR)$completion$(tput sgr0)"
+    _ai_shell_autocomplete="$completion"
+}
+
+# Clear autocomplete display
+_ai_shell_clear_autocomplete() {
+    POSTDISPLAY=""
+    _ai_shell_autocomplete=""
+}
+
+# ZLE widget to accept autocomplete with right arrow
+_ai_shell_zle_accept_autocomplete() {
+    if [[ -n "$_ai_shell_autocomplete" ]]; then
+        BUFFER="$BUFFER$_ai_shell_autocomplete"
+        _ai_shell_clear_autocomplete()
+        zle end-of-line
+    else
+        # Default right arrow behavior
+        zle forward-char
+    fi
+}
+
+# ZLE widget that triggers on every character insert
+_ai_shell_zle_autocomplete_on_insert() {
+    # First, do the actual character insertion
+    zle self-insert
+
+    # Clear any existing autocomplete
+    _ai_shell_clear_autocomplete
+
+    # Check if we should trigger autocomplete
+    if _ai_shell_should_autocomplete; then
+        # Update state
+        _ai_shell_last_command="$BUFFER"
+        _ai_shell_last_autocomplete_time=$(date +%s)
+
+        # Request autocomplete in background
+        {
+            local completion=$(_ai_shell_request_autocomplete "$BUFFER")
+            if [[ -n "$completion" ]]; then
+                # Update the display
+                _ai_shell_show_autocomplete "$completion"
+                zle -R  # Refresh display
+            fi
+        } &!
+    fi
+}
+
 # ZLE widget to accept suggestion with Tab
 _ai_shell_zle_accept_suggestion() {
     if [[ -n "$_ai_shell_suggestion" ]]; then
@@ -434,6 +570,8 @@ _ai_shell_zle_suggest() {
 zle -N _ai_shell_zle_accept_suggestion
 zle -N _ai_shell_zle_explain
 zle -N _ai_shell_zle_suggest
+zle -N _ai_shell_zle_accept_autocomplete
+zle -N _ai_shell_zle_autocomplete_on_insert
 
 # ============================================================================
 # Keybindings
@@ -442,12 +580,19 @@ zle -N _ai_shell_zle_suggest
 # Ctrl+Space: Get AI suggestion
 bindkey '^ ' _ai_shell_zle_suggest
 
-# Ctrl+E (after moving to end): Explain command
+# Ctrl+X e: Explain command
 bindkey '^Xe' _ai_shell_zle_explain
 
-# Right arrow: Accept suggestion if available
-# (Note: This is experimental and may interfere with normal navigation)
-# bindkey '^[[C' _ai_shell_zle_accept_suggestion
+# Right arrow: Accept autocomplete if available, otherwise move forward
+bindkey '^[[C' _ai_shell_zle_accept_autocomplete
+
+# Bind self-insert to trigger autocomplete (if enabled)
+if [[ "$AI_SHELL_ENABLE_AUTOCOMPLETE" == "1" ]]; then
+    # Hook into character insertion for automatic autocomplete
+    for key in {a..z} {A..Z} {0..9} - _ . / ; do
+        bindkey "$key" _ai_shell_zle_autocomplete_on_insert
+    done
+fi
 
 # ============================================================================
 # Initialization
