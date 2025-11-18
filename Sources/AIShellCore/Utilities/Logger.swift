@@ -8,10 +8,10 @@ import os.log
 public struct AppLogger {
     private let logger: Logging.Logger
     private let osLog: OSLog
-    
-    public init(subsystem: String, category: String) {
+
+    public init(subsystem: String, category: String, logLevel: Logging.Logger.Level = .info) {
         var logger = Logging.Logger(label: "\(subsystem).\(category)")
-        logger.logLevel = .debug
+        logger.logLevel = logLevel
         self.logger = logger
         self.osLog = OSLog(subsystem: subsystem, category: category)
     }
@@ -75,8 +75,32 @@ public struct AppLogger {
 
 public enum LoggerFactory {
     private static let subsystem = "com.aishell"
-    
+    private static var configuredLogLevel: Logging.Logger.Level = .info
+
+    /// Configure the global log level for all loggers
+    /// - Parameter logLevel: String value - "debug", "info", "warning", or "error"
+    public static func configure(logLevel: String) {
+        configuredLogLevel = mapLogLevel(logLevel)
+    }
+
     public static func create(category: String) -> AppLogger {
-        AppLogger(subsystem: subsystem, category: category)
+        AppLogger(subsystem: subsystem, category: category, logLevel: configuredLogLevel)
+    }
+
+    /// Map string log level to Logger.Level enum
+    private static func mapLogLevel(_ level: String) -> Logging.Logger.Level {
+        switch level.lowercased() {
+        case "debug":
+            return .debug
+        case "info":
+            return .info
+        case "warning":
+            return .warning
+        case "error":
+            return .error
+        default:
+            // Default to info for invalid values
+            return .info
+        }
     }
 }

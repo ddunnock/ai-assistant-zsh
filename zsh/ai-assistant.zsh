@@ -712,6 +712,58 @@ ai_shell_search() {
 }
 
 # ============================================================================
+# Simplified Command Interface
+# ============================================================================
+
+# The * command - simple, intuitive AI task conversion
+# Usage: * find all Swift files in this directory
+# Usage: * show me disk usage sorted by size
+# Usage: * create a backup of my home directory
+function * {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: * <task description>"
+        echo ""
+        echo "Examples:"
+        echo "  * find all Swift files in this directory"
+        echo "  * show me disk usage sorted by size"
+        echo "  * create a backup of my Documents folder"
+        echo ""
+        echo "The * command converts natural language into executable shell commands."
+        echo "You'll be prompted to confirm before any command executes."
+        return 0
+    fi
+
+    # Pass all arguments as a single task description
+    ai_shell_task "$*"
+}
+
+# Completion for * command - suggest common task patterns
+function _ai_star_completion {
+    local -a suggestions
+    suggestions=(
+        'find all files:Find all files of a certain type or pattern'
+        'show me:Display information about system resources'
+        'list all:List items matching criteria'
+        'search for:Search for files or content'
+        'count:Count occurrences or items'
+        'create:Create files, directories, or archives'
+        'delete:Remove files or directories'
+        'move:Move or rename files'
+        'copy:Copy files or directories'
+        'compress:Create archives or compress files'
+        'extract:Extract archives'
+        'install:Install packages or dependencies'
+        'update:Update packages or system'
+        'check:Check status or health of system'
+        'monitor:Monitor system resources or processes'
+    )
+    _describe 'common AI tasks' suggestions
+}
+
+# Register completion for * command
+compdef _ai_star_completion '*'
+
+# ============================================================================
 # Aliases (optional convenience functions)
 # ============================================================================
 
