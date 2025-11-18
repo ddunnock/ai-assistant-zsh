@@ -281,6 +281,11 @@ private final class Connection: Hashable, @unchecked Sendable {
 
     private func processMessage(_ data: Data) async {
         do {
+            // Log the raw JSON for debugging
+            if let jsonString = String(data: data, encoding: .utf8) {
+                logger.debug("Received JSON", metadata: ["json": jsonString])
+            }
+
             // Configure decoder for ISO8601 dates
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -311,7 +316,10 @@ private final class Connection: Hashable, @unchecked Sendable {
                 "request_id": request.id
             ])
         } catch {
-            logger.error("Message processing error", metadata: ["error": error.localizedDescription])
+            logger.error("Message processing error", metadata: [
+                "error": error.localizedDescription,
+                "error_description": String(describing: error)
+            ])
 
             // Try to send error response
             let errorResponse = Response.error(
