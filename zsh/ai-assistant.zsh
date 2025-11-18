@@ -175,12 +175,12 @@ ai_shell_suggest() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
         if [[ "$response_status" == "success" ]]; then
-            echo "$response" | jq -r '.payload.suggestion // ""'
+            printf '%s\n' "$response" | jq -r '.payload.suggestion // ""'
             return 0
         else
-            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
             [[ $AI_SHELL_DEBUG -eq 1 ]] && echo "Error: $error_msg" >&2
         fi
     fi
@@ -199,19 +199,19 @@ ai_shell_explain() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
         echo ""  # Newline after "..."
 
         if [[ "$response_status" == "success" ]]; then
-            local explanation=$(echo "$response" | jq -r '.payload.explanation // ""')
-            local processing_time=$(echo "$response" | jq -r '.processingTime // 0')
+            local explanation=$(printf '%s\n' "$response" | jq -r '.payload.explanation // ""')
+            local processing_time=$(printf '%s\n' "$response" | jq -r '.processingTime // 0')
 
             echo "$explanation"
             echo ""
             echo "$(tput dim)[Processing time: ${processing_time}s]$(tput sgr0)"
             return 0
         else
-            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
             echo "Error: $error_msg"
         fi
     else
@@ -237,10 +237,10 @@ ai_shell_task() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
 
         if [[ "$response_status" == "success" ]]; then
-            local commands=$(echo "$response" | jq -r '.payload.commands // [] | .[]')
+            local commands=$(printf '%s\n' "$response" | jq -r '.payload.commands // [] | .[]')
 
             if [[ -n "$commands" ]]; then
                 echo "Suggested commands:"
@@ -282,7 +282,7 @@ ai_shell_health() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
 
         if [[ "$response_status" == "success" ]]; then
             echo "✓ AI Shell Assistant daemon is healthy"
@@ -290,7 +290,7 @@ ai_shell_health() {
             return 0
         else
             echo "✗ AI Shell Assistant daemon reported an error"
-            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
             echo "  Error: $error_msg"
         fi
     else
@@ -516,13 +516,13 @@ ai_shell_remember() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
 
         if [[ "$response_status" == "success" ]]; then
             echo "✓ Remembered: $fact"
             return 0
         else
-            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
             echo "Error: $error_msg"
         fi
     else
@@ -560,15 +560,15 @@ ai_shell_recall() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
 
         if [[ "$response_status" == "success" ]]; then
             echo "Memories matching '$query':"
             echo "---"
-            echo "$response" | jq -r '.payload.commands // [] | .[]'
+            printf '%s\n' "$response" | jq -r '.payload.commands // [] | .[]'
             return 0
         else
-            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
             echo "Error: $error_msg"
         fi
     else
@@ -637,7 +637,7 @@ ai_shell_index() {
         local response=$(_ai_shell_send_request "$request")
 
         if [[ $? -eq 0 && -n "$response" ]]; then
-            local response_status=$(echo "$response" | jq -r '.status // "error"')
+            local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
 
             if [[ "$response_status" == "success" ]]; then
                 echo "✓"
@@ -693,15 +693,15 @@ ai_shell_search() {
     local response=$(_ai_shell_send_request "$request")
 
     if [[ $? -eq 0 && -n "$response" ]]; then
-        local response_status=$(echo "$response" | jq -r '.status // "error"')
+        local response_status=$(printf '%s\n' "$response" | jq -r '.status // "error"')
 
         if [[ "$response_status" == "success" ]]; then
             echo "Results:"
             echo "---"
-            echo "$response" | jq -r '.payload.commands // [] | .[]'
+            printf '%s\n' "$response" | jq -r '.payload.commands // [] | .[]'
             return 0
         else
-            local error_msg=$(echo "$response" | jq -r '.payload.error.message // "Unknown error"')
+            local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
             echo "Error: $error_msg"
         fi
     else
