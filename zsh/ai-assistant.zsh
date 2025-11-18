@@ -79,7 +79,8 @@ _ai_shell_create_request() {
         # Fallback to date command
         timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
     fi
-    local pwd_safe="${PWD/#$HOME/\~}"
+    # Use full path instead of tilde to avoid JSON escape issues
+    local pwd_safe="$PWD"
 
     # Get recent command history
     local history_json="[]"
@@ -615,7 +616,8 @@ ai_shell_index() {
         local id="req-$(date +%s)-$$-$indexed"
         local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
         [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
-        local pwd_safe="${PWD/#$HOME/\~}"
+        # Use full path to avoid JSON escape issues
+        local pwd_safe="$PWD"
 
         local request=$(cat <<-EOF
 			{
@@ -672,7 +674,8 @@ ai_shell_search() {
     local id="req-$(date +%s)-$$"
     local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
     [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local pwd_safe="${PWD/#$HOME/\~}"
+    # Use full path to avoid JSON escape issues
+    local pwd_safe="$PWD"
 
     local request=$(cat <<-EOF
 		{
