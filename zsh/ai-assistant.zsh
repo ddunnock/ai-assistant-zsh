@@ -7,10 +7,53 @@ AI_SHELL_SOCKET="${AI_SHELL_SOCKET:-/tmp/ai-shell.sock}"
 AI_SHELL_SUGGESTION_COLOR="${AI_SHELL_SUGGESTION_COLOR:-8}"  # Gray color for suggestions
 AI_SHELL_ENABLE_INLINE="${AI_SHELL_ENABLE_INLINE:-1}"         # Enable inline suggestions
 AI_SHELL_DEBUG="${AI_SHELL_DEBUG:-0}"                         # Debug mode
+AI_SHELL_SHOW_TIPS="${AI_SHELL_SHOW_TIPS:-1}"                # Show next-step recommendations
 
 # Internal state
 typeset -g _ai_shell_suggestion=""
 typeset -g _ai_shell_suggestion_pending=0
+
+# ============================================================================
+# Next-Step Recommendations
+# ============================================================================
+
+# Show context-aware next-step recommendations
+# Args: $1 = context (command type)
+_ai_shell_show_tip() {
+    [[ "$AI_SHELL_SHOW_TIPS" != "1" ]] && return
+
+    local context="$1"
+    local tip=""
+
+    case "$context" in
+        "task_success")
+            tip="💡 Tip: Explain what a command does with: $(tput setaf 6)Ctrl+X e$(tput sgr0) or $(tput setaf 6)aix <command>$(tput sgr0)"
+            ;;
+        "task_declined")
+            tip="💡 Tip: Try rephrasing your request or use $(tput setaf 6)* <different description>$(tput sgr0)"
+            ;;
+        "explain_success")
+            tip="💡 Tip: Remember this explanation with: $(tput setaf 6)air <fact>$(tput sgr0)"
+            ;;
+        "health_success")
+            tip="💡 Tip: Try the simplified syntax: $(tput setaf 6)* find all log files$(tput sgr0)"
+            ;;
+        "remember_success")
+            tip="💡 Tip: Recall information later with: $(tput setaf 6)airc <query>$(tput sgr0)"
+            ;;
+        "index_success")
+            tip="💡 Tip: Search your docs with: $(tput setaf 6)ais <search query>$(tput sgr0)"
+            ;;
+        *)
+            return
+            ;;
+    esac
+
+    if [[ -n "$tip" ]]; then
+        echo ""
+        echo "$tip"
+    fi
+}
 
 # ============================================================================
 # Socket Communication Functions
@@ -209,6 +252,7 @@ ai_shell_explain() {
             echo "$explanation"
             echo ""
             echo "$(tput dim)[Processing time: ${processing_time}s]$(tput sgr0)"
+            _ai_shell_show_tip "explain_success"
             return 0
         else
             local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
@@ -258,8 +302,10 @@ ai_shell_task() {
                         eval "$cmd"
                         echo ""
                     done
+                    _ai_shell_show_tip "task_success"
                 else
                     echo "Commands not executed. You can copy them manually."
+                    _ai_shell_show_tip "task_declined"
                 fi
             else
                 echo "No commands generated."
@@ -287,6 +333,7 @@ ai_shell_health() {
         if [[ "$response_status" == "success" ]]; then
             echo "✓ AI Shell Assistant daemon is healthy"
             echo "  Socket: $AI_SHELL_SOCKET"
+            _ai_shell_show_tip "health_success"
             return 0
         else
             echo "✗ AI Shell Assistant daemon reported an error"
@@ -520,6 +567,7 @@ ai_shell_remember() {
 
         if [[ "$response_status" == "success" ]]; then
             echo "✓ Remembered: $fact"
+            _ai_shell_show_tip "remember_success"
             return 0
         else
             local error_msg=$(printf '%s\n' "$response" | jq -r '.payload.error.message // "Unknown error"')
@@ -655,6 +703,10 @@ ai_shell_index() {
     echo ""
     echo "Indexed: $indexed files"
     [[ $failed -gt 0 ]] && echo "Failed: $failed files"
+
+    if [[ $indexed -gt 0 ]]; then
+        _ai_shell_show_tip "index_success"
+    fi
 
     return 0
 }
