@@ -28,6 +28,12 @@ _ai_shell_send_request() {
         return 1
     fi
 
+    # Debug: print the request JSON if debug mode is on
+    if [[ $AI_SHELL_DEBUG -eq 1 ]]; then
+        echo "DEBUG: Sending request:" >&2
+        echo "$payload" | jq '.' >&2 2>/dev/null || echo "$payload" >&2
+    fi
+
     # Find the Python client helper
     local client_script=""
     local script_dir="${0:A:h}"  # Directory of this script
