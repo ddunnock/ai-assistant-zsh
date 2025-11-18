@@ -288,7 +288,7 @@ private final class Connection: Hashable, @unchecked Sendable {
 
             // Configure decoder for ISO8601 dates with fractional seconds support
             let decoder = JSONDecoder()
-            decoder.configureDateDecoding()
+            decoder.dateDecodingStrategy = DateCoding.flexibleISO8601
 
             let request = try decoder.decode(Request.self, from: data)
 
@@ -301,7 +301,7 @@ private final class Connection: Hashable, @unchecked Sendable {
 
             // Configure encoder for ISO8601 dates with fractional seconds
             let encoder = JSONEncoder()
-            encoder.configureDateEncoding()
+            encoder.dateEncodingStrategy = DateCoding.iso8601WithFractional
 
             let responseData = try encoder.encode(response)
 
@@ -329,7 +329,7 @@ private final class Connection: Hashable, @unchecked Sendable {
             )
 
             let encoder = JSONEncoder()
-            encoder.configureDateEncoding()
+            encoder.dateEncodingStrategy = DateCoding.iso8601WithFractional
 
             if let errorData = try? encoder.encode(errorResponse) {
                 let framedMessage = FramedMessage(data: errorData)
