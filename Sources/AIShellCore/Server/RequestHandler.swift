@@ -52,6 +52,8 @@ public actor RequestHandler {
             return try await handleTask(request)
         case .health:
             return await handleHealth(request)
+        case .autocomplete:
+            return try await handleAutocomplete(request)
 
         // Phase 2 features - not supported in basic handler
         case .remember, .forget, .recall, .index, .search:
@@ -155,9 +157,53 @@ public actor RequestHandler {
         )
     }
     
+    private func handleAutocomplete(_ request: Request) async throws -> Response {
+        guard let partialCommand = request.payload.command else {
+            throw AIShellError.requestError("Missing command in autocomplete request")
+        }
+
+        // Calculate base confidence score
+        var confidence = calculateAutocompleteConfidence(for: partialCommand, context: request.payload.context)
+
+        // If confidence is too low, don't bother calling AI
+        guard confidence >= 0.3 else {
+            return Response.success(
+                requestId: request.id,
+                completion: nil,
+                confidence: 0.0,
+                processingTime: Date().timeIntervalSince(request.timestamp)
+            )
+        }
+
+        // Build contextual prompt
+        let prompt = buildAutocompletePrompt(partialCommand: partialCommand, context: request.payload.context)
+
+        // Get completion from AI
+        let completion = try await ollamaClient.generate(
+            prompt: prompt,
+            system: "You are a shell autocomplete assistant. Complete the partial command with the most likely continuation. Output ONLY the completion text that should be added to the existing command, without repeating what's already typed. Keep it concise and on a single line."
+        )
+
+        let trimmedCompletion = completion.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Adjust confidence based on completion quality
+        confidence = refineConfidence(
+            baseConfidence: confidence,
+            completion: trimmedCompletion,
+            partialCommand: partialCommand
+        )
+
+        return Response.success(
+            requestId: request.id,
+            completion: trimmedCompletion,
+            confidence: confidence,
+            processingTime: Date().timeIntervalSince(request.timestamp)
+        )
+    }
+
     private func handleHealth(_ request: Request) async -> Response {
         let isHealthy = await ollamaClient.healthCheck()
-        
+
         if isHealthy {
             return Response.success(
                 requestId: request.id,
@@ -174,19 +220,104 @@ public actor RequestHandler {
     
     private func buildSuggestPrompt(command: String, context: Request.ContextInfo?) -> String {
         var prompt = "Current command: \(command)\n"
-        
+
         if let history = context?.history, !history.isEmpty {
             prompt += "\nRecent commands:\n"
             prompt += history.suffix(5).joined(separator: "\n")
         }
-        
+
         if let branch = context?.gitBranch {
             prompt += "\nGit branch: \(branch)"
         }
-        
+
         prompt += "\n\nSuggest an improvement or completion for the current command."
-        
+
         return prompt
+    }
+
+    private func buildAutocompletePrompt(partialCommand: String, context: Request.ContextInfo?) -> String {
+        var prompt = "Partial command: \(partialCommand)\n"
+
+        if let history = context?.history, !history.isEmpty {
+            prompt += "\nRecent commands:\n"
+            prompt += history.suffix(3).joined(separator: "\n")
+        }
+
+        if let workingDir = context?.environment?["PWD"] {
+            prompt += "\nWorking directory: \(workingDir)"
+        }
+
+        prompt += "\n\nComplete this command with the most likely continuation."
+
+        return prompt
+    }
+
+    private func calculateAutocompleteConfidence(for command: String, context: Request.ContextInfo?) -> Double {
+        var confidence: Double = 0.5 // Base confidence
+
+        // Too short? Lower confidence
+        if command.count < 3 {
+            return 0.0
+        }
+
+        // Minimum length threshold
+        if command.count < 10 {
+            confidence *= 0.6
+        }
+
+        // Looks incomplete? Higher confidence
+        let incompleMarkers = ["|", "&&", "||", ";", ">", "<", "$(", "\"", "'", " -", " --"]
+        let endsWithIncomplete = incompleMarkers.contains { command.hasSuffix($0) } || command.hasSuffix(" ")
+
+        if endsWithIncomplete {
+            confidence *= 1.4
+        }
+
+        // Has context? Boost confidence
+        if let history = context?.history, !history.isEmpty {
+            confidence *= 1.1
+        }
+
+        // Common command patterns
+        let commonCommands = ["git", "docker", "kubectl", "npm", "find", "grep", "awk", "sed"]
+        if commonCommands.contains(where: { command.starts(with: $0 + " ") }) {
+            confidence *= 1.2
+        }
+
+        // Clamp between 0 and 1
+        return min(max(confidence, 0.0), 1.0)
+    }
+
+    private func refineConfidence(baseConfidence: Double, completion: String, partialCommand: String) -> Double {
+        var confidence = baseConfidence
+
+        // Empty completion? Zero confidence
+        if completion.isEmpty {
+            return 0.0
+        }
+
+        // Completion is too long or multi-line? Lower confidence
+        if completion.count > 100 || completion.contains("\n") {
+            confidence *= 0.5
+        }
+
+        // Completion repeats the partial command? Lower confidence
+        if completion.lowercased().hasPrefix(partialCommand.lowercased()) {
+            confidence *= 0.4
+        }
+
+        // Completion looks like explanation text? Lower confidence
+        let explanationMarkers = ["This command", "This will", "You can", "To ", "Usage:"]
+        if explanationMarkers.contains(where: { completion.starts(with: $0) }) {
+            confidence *= 0.3
+        }
+
+        // Completion starts with common option patterns? Higher confidence
+        if completion.starts(with: "-") || completion.starts(with: "/") || completion.starts(with: ".") {
+            confidence *= 1.1
+        }
+
+        return min(max(confidence, 0.0), 1.0)
     }
     
     private func errorResponse(for request: Request, error: Error) -> Response {
