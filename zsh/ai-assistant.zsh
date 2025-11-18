@@ -73,7 +73,12 @@ _ai_shell_create_request() {
     local extra_context="$3"
 
     local id="req-$(date +%s)-$$"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    # Generate ISO8601 timestamp with fractional seconds for Swift compatibility
+    local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
+    if [[ -z "$timestamp" ]]; then
+        # Fallback to date command
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+    fi
     local pwd_safe="${PWD/#$HOME/\~}"
 
     # Get recent command history
@@ -491,7 +496,8 @@ ai_shell_remember() {
 
     # Add fact to payload
     local id="req-$(date +%s)-$$"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
+    [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     request=$(cat <<-EOF
 		{
@@ -535,7 +541,8 @@ ai_shell_recall() {
     }
 
     local id="req-$(date +%s)-$$"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
+    [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
     local request=$(cat <<-EOF
 		{
@@ -606,7 +613,8 @@ ai_shell_index() {
         }
 
         local id="req-$(date +%s)-$$-$indexed"
-        local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+        local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
+        [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
         local pwd_safe="${PWD/#$HOME/\~}"
 
         local request=$(cat <<-EOF
@@ -662,7 +670,8 @@ ai_shell_search() {
     echo ""
 
     local id="req-$(date +%s)-$$"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    local timestamp=$(python3 -c "from datetime import datetime; print(datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z')" 2>/dev/null)
+    [[ -z "$timestamp" ]] && timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
     local pwd_safe="${PWD/#$HOME/\~}"
 
     local request=$(cat <<-EOF
