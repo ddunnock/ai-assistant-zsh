@@ -133,12 +133,21 @@ public actor RequestHandler {
             prompt: prompt,
             system: "You are a shell scripting expert. Convert tasks to safe, efficient shell commands."
         )
-        
+
+        // Clean up the response: remove markdown code blocks and empty lines
         let commands = commandsText
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        
+            .filter { line in
+                // Skip empty lines
+                guard !line.isEmpty else { return false }
+                // Skip markdown code blocks
+                guard !line.hasPrefix("```") else { return false }
+                // Skip comments
+                guard !line.hasPrefix("#") else { return false }
+                return true
+            }
+
         return Response.success(
             requestId: request.id,
             commands: commands,
