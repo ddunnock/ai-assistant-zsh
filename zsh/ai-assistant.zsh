@@ -9,6 +9,11 @@ AI_SHELL_ENABLE_INLINE="${AI_SHELL_ENABLE_INLINE:-1}"         # Enable inline su
 AI_SHELL_DEBUG="${AI_SHELL_DEBUG:-0}"                         # Debug mode
 AI_SHELL_SHOW_TIPS="${AI_SHELL_SHOW_TIPS:-1}"                # Show next-step recommendations
 
+# Prompt indicator configuration
+AI_SHELL_SHOW_INDICATOR="${AI_SHELL_SHOW_INDICATOR:-1}"      # Show prompt indicator when active
+AI_SHELL_INDICATOR_SYMBOL="${AI_SHELL_INDICATOR_SYMBOL:-✨}"  # Symbol to show (✨, 🤖, 🧠, ⚡, etc.)
+AI_SHELL_INDICATOR_COLOR="${AI_SHELL_INDICATOR_COLOR:-cyan}" # Color: cyan, green, yellow, magenta, etc.
+
 # Autocomplete Configuration
 AI_SHELL_ENABLE_AUTOCOMPLETE="${AI_SHELL_ENABLE_AUTOCOMPLETE:-1}"  # Enable automatic code completion
 AI_SHELL_AUTOCOMPLETE_MIN_LENGTH="${AI_SHELL_AUTOCOMPLETE_MIN_LENGTH:-10}"  # Minimum command length
@@ -22,6 +27,8 @@ typeset -g _ai_shell_autocomplete=""
 typeset -g _ai_shell_autocomplete_pending=0
 typeset -g _ai_shell_last_command=""
 typeset -g _ai_shell_last_autocomplete_time=0
+typeset -g _ai_shell_daemon_status=""  # Cache daemon status
+typeset -g _ai_shell_last_status_check=0  # Last time we checked status
 
 # ============================================================================
 # Next-Step Recommendations
@@ -622,6 +629,55 @@ _ai_shell_check_dependencies() {
     return 0
 }
 
+# ============================================================================
+# Prompt Indicator
+# ============================================================================
+
+# Check if daemon is active (cached for performance)
+_ai_shell_is_daemon_active() {
+    [[ "$AI_SHELL_SHOW_INDICATOR" != "1" ]] && return 1
+
+    local now=$(date +%s)
+    local cache_duration=10  # Cache status for 10 seconds
+
+    # Use cached status if recent
+    if [[ -n "$_ai_shell_daemon_status" && $((now - _ai_shell_last_status_check)) -lt $cache_duration ]]; then
+        [[ "$_ai_shell_daemon_status" == "active" ]] && return 0 || return 1
+    fi
+
+    # Check if socket exists (fast check)
+    if [[ -S "$AI_SHELL_SOCKET" ]]; then
+        _ai_shell_daemon_status="active"
+        _ai_shell_last_status_check=$now
+        return 0
+    else
+        _ai_shell_daemon_status="inactive"
+        _ai_shell_last_status_check=$now
+        return 1
+    fi
+}
+
+# Build the prompt indicator
+_ai_shell_prompt_indicator() {
+    if _ai_shell_is_daemon_active; then
+        echo "%F{$AI_SHELL_INDICATOR_COLOR}${AI_SHELL_INDICATOR_SYMBOL}%f"
+    fi
+}
+
+# Setup RPROMPT with AI indicator
+_ai_shell_setup_prompt() {
+    [[ "$AI_SHELL_SHOW_INDICATOR" != "1" ]] && return
+
+    # Save existing RPROMPT if any
+    if [[ -n "$RPROMPT" ]]; then
+        # Append to existing RPROMPT
+        RPROMPT='$(_ai_shell_prompt_indicator) '"$RPROMPT"
+    else
+        # Create new RPROMPT
+        RPROMPT='$(_ai_shell_prompt_indicator)'
+    fi
+}
+
 # Auto-start daemon if not running
 _ai_shell_auto_start() {
     if [[ ! -S "$AI_SHELL_SOCKET" ]]; then
@@ -643,11 +699,15 @@ _ai_shell_init() {
         _ai_shell_auto_start
     fi
 
+    # Setup prompt indicator
+    _ai_shell_setup_prompt
+
     # Show welcome message
     if [[ -S "$AI_SHELL_SOCKET" ]]; then
         echo "AI Shell Assistant loaded. Available commands:"
         echo ""
-        echo "  Core:"
+        echo "  Quick Commands:"
+        echo "    * <description>              - Ultra-simple task syntax!"
         echo "    ai_shell_task <description>  - Convert natural language to commands"
         echo "    ai_shell_explain [command]   - Explain a command"
         echo "    ai_shell_health              - Check daemon status"
@@ -661,8 +721,13 @@ _ai_shell_init() {
         echo "Keybindings:"
         echo "  Ctrl+Space  - Get AI suggestion for current command"
         echo "  Ctrl+X e    - Explain current command"
+        echo "  Right Arrow - Accept autocomplete suggestion"
         echo ""
         echo "Aliases: ait, aix, aih, air, airc, aii, ais"
+        echo ""
+        if [[ "$AI_SHELL_SHOW_INDICATOR" == "1" ]]; then
+            echo "Look for the ${AI_SHELL_INDICATOR_SYMBOL} in your prompt when AI is active!"
+        fi
     else
         echo "AI Shell Assistant loaded (daemon not running)"
         echo "Start daemon with: ai-shell-daemon"
