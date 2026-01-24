@@ -1,6 +1,9 @@
 // Sources/AIShellCore/RAG/EmbeddingStore.swift
 
 import Foundation
+import Crypto
+import OrderedCollections
+import HeapModule
 
 /// A document with its embedding
 public struct EmbeddedDocument: Codable, Identifiable {
@@ -79,9 +82,16 @@ public actor EmbeddingStore {
     private var documents: [EmbeddedDocument] = []
     private let maxDocuments = 5000
 
-    public init(storageURL: URL, ollamaClient: OllamaClient) {
+    // Query embedding cache (LRU)
+    private var embeddingCache: OrderedDictionary<String, [Double]> = [:]
+    private let maxCacheSize: Int
+    private var cacheHits: Int = 0
+    private var cacheMisses: Int = 0
+
+    public init(storageURL: URL, ollamaClient: OllamaClient, maxCacheSize: Int = 1000) {
         self.storageURL = storageURL
         self.ollamaClient = ollamaClient
+        self.maxCacheSize = maxCacheSize
     }
 
     // MARK: - Document Management
@@ -101,26 +111,74 @@ public actor EmbeddingStore {
 
         documents.append(document)
 
-        // Prune if needed
+        // Prune if needed using heap-based selection
         if documents.count > maxDocuments {
-            documents = documents.sorted { doc1, doc2 in
-                // Sort by importance and recency
-                let importanceWeight = 0.6
-                let recencyWeight = 0.4
-
-                let score1 = doc1.metadata.importance * importanceWeight +
-                    (1.0 - min(Date().timeIntervalSince(doc1.timestamp) / 86400, 1.0)) * recencyWeight
-                let score2 = doc2.metadata.importance * importanceWeight +
-                    (1.0 - min(Date().timeIntervalSince(doc2.timestamp) / 86400, 1.0)) * recencyWeight
-
-                return score1 > score2
-            }.prefix(maxDocuments).map { $0 }
+            pruneDocuments()
         }
 
         logger.debug("Added document", metadata: [
             "source": metadata.source.rawValue,
             "length": String(content.count)
         ])
+    }
+
+    // MARK: - Embedding Cache
+
+    /// Create cache key from query text using SHA256 hash
+    private func createCacheKey(for query: String) -> String {
+        let data = Data(query.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Get cached embedding, moving it to end (MRU position)
+    private func getCachedEmbedding(for key: String) -> [Double]? {
+        guard let value = embeddingCache.removeValue(forKey: key) else {
+            return nil
+        }
+        embeddingCache[key] = value  // Re-insert at end (most recently used)
+        return value
+    }
+
+    /// Cache embedding, evicting oldest if at capacity
+    private func setCachedEmbedding(_ embedding: [Double], for key: String) {
+        while embeddingCache.count >= maxCacheSize {
+            embeddingCache.removeFirst()  // Evict oldest (LRU)
+        }
+        embeddingCache[key] = embedding
+    }
+
+    /// Get embedding cache statistics
+    public func getCacheStatistics() -> EmbeddingCacheStatistics {
+        return EmbeddingCacheStatistics(
+            totalEntries: embeddingCache.count,
+            cacheHits: cacheHits,
+            cacheMisses: cacheMisses
+        )
+    }
+
+    /// Clear the embedding cache
+    public func clearCache() {
+        embeddingCache.removeAll()
+        cacheHits = 0
+        cacheMisses = 0
+        logger.info("Embedding cache cleared")
+    }
+
+    // MARK: - Pruning
+
+    /// Prune documents to maxDocuments using heap-based top-k selection
+    private func pruneDocuments() {
+        // Build min-heap from all documents
+        var heap = Heap(documents.map { ScoredDocument(document: $0) })
+
+        // Remove lowest-scored documents until at capacity
+        while heap.count > maxDocuments {
+            _ = heap.popMin()
+        }
+
+        // Extract remaining documents (highest scored)
+        documents = heap.unordered.map(\.document)
     }
 
     /// Search documents by semantic similarity
@@ -131,7 +189,21 @@ public actor EmbeddingStore {
         source: DocumentSource? = nil,
         workingDirectory: String? = nil
     ) async throws -> [SearchResult] {
-        let queryEmbedding = try await ollamaClient.generateEmbedding(text: query)
+        // Generate cache key
+        let cacheKey = createCacheKey(for: query)
+
+        // Check cache first
+        let queryEmbedding: [Double]
+        if let cached = getCachedEmbedding(for: cacheKey) {
+            cacheHits += 1
+            queryEmbedding = cached
+            logger.debug("Embedding cache hit", metadata: ["key": String(cacheKey.prefix(16)) + "..."])
+        } else {
+            cacheMisses += 1
+            queryEmbedding = try await ollamaClient.generateEmbedding(text: query)
+            setCachedEmbedding(queryEmbedding, for: cacheKey)
+            logger.debug("Embedding cache miss", metadata: ["key": String(cacheKey.prefix(16)) + "..."])
+        }
 
         var candidates = documents
 
@@ -152,11 +224,10 @@ public actor EmbeddingStore {
         }
 
         // Filter and sort by similarity
-        return results
+        return Array(results
             .filter { $0.similarity >= minSimilarity }
             .sorted { $0.similarity > $1.similarity }
-            .prefix(limit)
-            .map { $0 }
+            .prefix(limit))
     }
 
     /// Get relevant context for a command
@@ -381,4 +452,48 @@ private func cosineSimilarity(_ a: [Double], _ b: [Double]) -> Double {
     guard magnitudeA > 0 && magnitudeB > 0 else { return 0.0 }
 
     return dotProduct / (magnitudeA * magnitudeB)
+}
+
+// MARK: - Cache Statistics
+
+public struct EmbeddingCacheStatistics {
+    public let totalEntries: Int
+    public let cacheHits: Int
+    public let cacheMisses: Int
+
+    public var hitRatio: Double {
+        let total = cacheHits + cacheMisses
+        return total > 0 ? Double(cacheHits) / Double(total) : 0.0
+    }
+
+    public init(totalEntries: Int, cacheHits: Int, cacheMisses: Int) {
+        self.totalEntries = totalEntries
+        self.cacheHits = cacheHits
+        self.cacheMisses = cacheMisses
+    }
+}
+
+// MARK: - Heap-Based Pruning Support
+
+/// Wrapper for heap-based document pruning
+struct ScoredDocument: Comparable {
+    let document: EmbeddedDocument
+    let score: Double
+
+    init(document: EmbeddedDocument) {
+        let importanceWeight = 0.6
+        let recencyWeight = 0.4
+        let ageInDays = Date().timeIntervalSince(document.timestamp) / 86400
+        let recencyScore = 1.0 - min(ageInDays, 1.0)
+        self.document = document
+        self.score = document.metadata.importance * importanceWeight + recencyScore * recencyWeight
+    }
+
+    static func < (lhs: ScoredDocument, rhs: ScoredDocument) -> Bool {
+        lhs.score < rhs.score
+    }
+
+    static func == (lhs: ScoredDocument, rhs: ScoredDocument) -> Bool {
+        lhs.document.id == rhs.document.id
+    }
 }

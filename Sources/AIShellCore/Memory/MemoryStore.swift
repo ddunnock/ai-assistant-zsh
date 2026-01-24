@@ -1,6 +1,7 @@
 // Sources/AIShellCore/Memory/MemoryStore.swift
 
 import Foundation
+import HeapModule
 
 /// Memory types
 public enum MemoryType: String, Codable {
@@ -199,21 +200,9 @@ public actor MemoryStore {
 
         memories[entry.type]?.append(entry)
 
-        // Prune old memories if needed
+        // Prune old memories if needed using heap-based selection
         if let count = memories[entry.type]?.count, count > maxMemoriesPerType {
-            // Keep most important and recent memories
-            memories[entry.type] = memories[entry.type]?.sorted { entry1, entry2 in
-                // Sort by importance and recency
-                let importanceWeight = 0.7
-                let recencyWeight = 0.3
-
-                let score1 = entry1.importance * importanceWeight +
-                    (1.0 - min(Date().timeIntervalSince(entry1.timestamp) / 86400, 1.0)) * recencyWeight
-                let score2 = entry2.importance * importanceWeight +
-                    (1.0 - min(Date().timeIntervalSince(entry2.timestamp) / 86400, 1.0)) * recencyWeight
-
-                return score1 > score2
-            }.prefix(maxMemoriesPerType).map { $0 }
+            pruneMemories(type: entry.type)
         }
 
         logger.debug("Added memory", metadata: [
@@ -240,22 +229,20 @@ public actor MemoryStore {
         let allMemories = memories.values.flatMap { $0 }
         let queryLower = query.lowercased()
 
-        return allMemories
+        return Array(allMemories
             .filter { $0.content.lowercased().contains(queryLower) }
             .sorted { $0.importance > $1.importance }
-            .prefix(limit)
-            .map { $0 }
+            .prefix(limit))
     }
 
     /// Get project-specific memories
     public func getProjectMemories(projectPath: String, limit: Int = 20) -> [MemoryEntry] {
         guard let projectMemories = memories[.project] else { return [] }
 
-        return projectMemories
+        return Array(projectMemories
             .filter { $0.workingDirectory == projectPath }
             .sorted { $0.timestamp > $1.timestamp }
-            .prefix(limit)
-            .map { $0 }
+            .prefix(limit))
     }
 
     /// Learn from command execution
@@ -362,6 +349,22 @@ public actor MemoryStore {
 
         logger.debug("Pruned old sessions")
     }
+
+    /// Prune memories of a specific type to maxMemoriesPerType using heap-based top-k selection
+    private func pruneMemories(type: MemoryType) {
+        guard let typeMemories = memories[type] else { return }
+
+        // Build min-heap from all memories of this type
+        var heap = Heap(typeMemories.map { ScoredMemory(entry: $0) })
+
+        // Remove lowest-scored memories until at capacity
+        while heap.count > maxMemoriesPerType {
+            _ = heap.popMin()
+        }
+
+        // Extract remaining memories (highest scored)
+        memories[type] = heap.unordered.map(\.entry)
+    }
 }
 
 // MARK: - Supporting Types
@@ -370,4 +373,29 @@ private struct MemorySnapshot: Codable {
     let memories: [MemoryType: [MemoryEntry]]
     let sessions: [String: SessionContext]
     let currentSessionId: String?
+}
+
+// MARK: - Heap-Based Pruning Support
+
+/// Wrapper for heap-based memory pruning
+struct ScoredMemory: Comparable {
+    let entry: MemoryEntry
+    let score: Double
+
+    init(entry: MemoryEntry) {
+        let importanceWeight = 0.7
+        let recencyWeight = 0.3
+        let ageInDays = Date().timeIntervalSince(entry.timestamp) / 86400
+        let recencyScore = 1.0 - min(ageInDays, 1.0)
+        self.entry = entry
+        self.score = entry.importance * importanceWeight + recencyScore * recencyWeight
+    }
+
+    static func < (lhs: ScoredMemory, rhs: ScoredMemory) -> Bool {
+        lhs.score < rhs.score
+    }
+
+    static func == (lhs: ScoredMemory, rhs: ScoredMemory) -> Bool {
+        lhs.entry.id == rhs.entry.id
+    }
 }
