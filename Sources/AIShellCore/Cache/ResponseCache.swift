@@ -198,12 +198,44 @@ public actor ResponseCache {
         return dotProduct / (magnitudeA * magnitudeB)
     }
 
-    /// Set cache entry
-    public func set(_ key: String, response: String, metadata: [String: String] = [:]) {
+    /// Set cache entry with optional embedding generation for semantic matching
+    /// - Parameters:
+    ///   - key: The cache key
+    ///   - response: The response to cache
+    ///   - query: Optional query text for embedding generation (enables semantic matching)
+    ///   - metadata: Additional metadata to store with the entry
+    public func set(
+        _ key: String,
+        response: String,
+        query: String? = nil,
+        metadata: [String: String] = [:]
+    ) async {
+        var embedding: [Double]? = nil
+
+        // Generate embedding if semantic cache is enabled and query is provided
+        if enableSemanticCache,
+           let query = query,
+           let client = ollamaClient {
+            do {
+                embedding = try await client.generateEmbedding(text: query)
+                logger.debug("Generated embedding for cache entry", metadata: [
+                    "key": String(key.prefix(16)) + "...",
+                    "embedding_dim": String(embedding?.count ?? 0)
+                ])
+            } catch {
+                logger.warning("Failed to generate embedding for cache entry", metadata: [
+                    "error": String(describing: error)
+                ])
+                // Continue without embedding - entry will still be cached for exact match
+            }
+        }
+
         let entry = CachedResponse(
             key: key,
             response: response,
-            metadata: metadata
+            metadata: metadata,
+            embedding: embedding,
+            originalQuery: query
         )
 
         cache[key] = entry
@@ -213,7 +245,10 @@ public actor ResponseCache {
             pruneCache()
         }
 
-        logger.debug("Cache set", metadata: ["key": key])
+        logger.debug("Cache set", metadata: [
+            "key": key,
+            "has_embedding": String(embedding != nil)
+        ])
     }
 
     /// Create cache key from request components using JSON serialization for collision resistance
