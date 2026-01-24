@@ -97,12 +97,19 @@ Plans:
 
 ## Phase 4: Statistics Optimization
 
-**Goal:** Make getStatistics() O(1) instead of O(n)
+**Goal:** Make getStatistics() O(1) instead of O(n), plus LLM observability metrics
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 04-01-PLAN.md - Implement running counters, O(1) statistics, and LLM observability metrics (exactHits, semanticHits, missReasons)
 
 **Requirements:**
 - R4.1: Maintain running counters for age distribution buckets
 - R4.2: Update counters incrementally on add/remove
 - R4.3: Return pre-computed statistics without iteration
+- R4.4: Track exactHits vs semanticHits for cache hit breakdown
+- R4.5: Track detailed cache miss reasons for debugging
 
 **Affected Files:**
 - `Sources/AIShellCore/Cache/ResponseCache.swift` (lines 132-163)
@@ -110,6 +117,8 @@ Plans:
 **Acceptance Criteria:**
 - [ ] getStatistics() returns in constant time
 - [ ] Statistics accuracy unchanged from current implementation
+- [ ] exactHits and semanticHits tracked separately
+- [ ] Miss reasons categorized (no_match, expired, below_threshold, etc.)
 
 ---
 
