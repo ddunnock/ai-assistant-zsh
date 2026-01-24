@@ -130,7 +130,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 05-01-PLAN.md - Wire EmbeddingStore stats to health endpoint, create verification docs for phases 1-2
+- [ ] 05-01-PLAN.md — Wire EmbeddingStore stats to health endpoint, create verification docs for phases 1-2, human smoke test semantic matching
 
 **Gap Closure:** Closes tech debt from v1-MILESTONE-AUDIT.md
 
