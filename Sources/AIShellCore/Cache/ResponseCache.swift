@@ -89,6 +89,8 @@ public actor ResponseCache {
             // Check if expired
             if isExpired(entry) {
                 cache.removeValue(forKey: key)
+                counters.totalEntries -= 1
+                counters.missReasons["expired", default: 0] += 1
                 let ageHours = Date().timeIntervalSince(entry.timestamp) / 3600
                 logger.info("Cache entry expired and removed", metadata: [
                     "key": String(key.prefix(16)) + "...",
@@ -107,6 +109,8 @@ public actor ResponseCache {
                     originalQuery: entry.originalQuery
                 )
                 cache[key] = updated
+                counters.totalHits += 1
+                counters.exactHits += 1
 
                 logger.debug("Cache hit (exact)", metadata: [
                     "key": key,
@@ -122,8 +126,19 @@ public actor ResponseCache {
            let query = query,
            ollamaClient != nil {
             if let semanticResult = await findSimilarMatch(query: query) {
+                counters.totalHits += 1
+                counters.semanticHits += 1
                 return semanticResult
             }
+        }
+
+        // Miss tracking - after both paths fail
+        if cache.isEmpty {
+            counters.missReasons["empty_cache", default: 0] += 1
+        } else if query == nil {
+            counters.missReasons["no_embedding", default: 0] += 1
+        } else {
+            counters.missReasons["no_match", default: 0] += 1
         }
 
         return nil
@@ -257,6 +272,9 @@ public actor ResponseCache {
             }
         }
 
+        // Check if this is a new entry
+        let isNewEntry = cache[key] == nil
+
         let entry = CachedResponse(
             key: key,
             response: response,
@@ -266,6 +284,12 @@ public actor ResponseCache {
         )
 
         cache[key] = entry
+
+        // Update counters for new entry
+        if isNewEntry {
+            counters.totalEntries += 1
+            counters.ageBuckets["< 1h", default: 0] += 1
+        }
 
         // Prune if needed
         if cache.count > maxCacheSize {
@@ -317,13 +341,16 @@ public actor ResponseCache {
 
     /// Invalidate cache entry
     public func invalidate(_ key: String) {
-        cache.removeValue(forKey: key)
+        if cache.removeValue(forKey: key) != nil {
+            counters.totalEntries -= 1
+        }
         logger.debug("Cache invalidated", metadata: ["key": key])
     }
 
     /// Clear all cache
     public func clear() {
         cache.removeAll()
+        counters = CacheCounters()
         logger.info("Cache cleared")
     }
 
@@ -364,6 +391,8 @@ public actor ResponseCache {
     // MARK: - Cache Management
 
     private func pruneCache() {
+        let before = cache.count
+
         // Sort by score (hitCount * recency)
         let sorted = cache.values.sorted { entry1, entry2 in
             let score1 = calculateScore(entry1)
@@ -374,6 +403,9 @@ public actor ResponseCache {
         // Keep top entries
         let toKeep = sorted.prefix(maxCacheSize)
         cache = Dictionary(uniqueKeysWithValues: toKeep.map { ($0.key, $0) })
+
+        let removed = before - cache.count
+        counters.totalEntries -= removed
 
         logger.debug("Pruned cache", metadata: [
             "kept": String(cache.count)
