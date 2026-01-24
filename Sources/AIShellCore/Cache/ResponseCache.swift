@@ -356,36 +356,34 @@ public actor ResponseCache {
 
     /// Get cache statistics
     public func getStatistics() -> CacheStatistics {
-        let totalEntries = cache.count
-        let totalHits = cache.values.reduce(0) { $0 + $1.hitCount }
+        let now = Date()
 
-        var ageDistribution: [String: Int] = [
-            "< 1h": 0,
-            "< 1d": 0,
-            "< 7d": 0,
-            "> 7d": 0
-        ]
+        // Recalculate age buckets if stale (throttled to every 5 minutes)
+        if now.timeIntervalSince(counters.lastRecalculated) > recalcInterval {
+            recalculateAgeBuckets()
+            counters.lastRecalculated = now
+        }
+
+        return CacheStatistics(
+            totalEntries: counters.totalEntries,
+            totalHits: counters.totalHits,
+            ageDistribution: counters.ageBuckets,
+            exactHits: counters.exactHits,
+            semanticHits: counters.semanticHits,
+            missReasons: counters.missReasons
+        )
+    }
+
+    /// Recalculate age buckets from current cache state (O(n) but throttled)
+    private func recalculateAgeBuckets() {
+        counters.ageBuckets = ["< 1h": 0, "< 1d": 0, "< 7d": 0, "> 7d": 0]
 
         let now = Date()
         for entry in cache.values {
             let age = now.timeIntervalSince(entry.timestamp)
-
-            if age < 3600 {
-                ageDistribution["< 1h"]! += 1
-            } else if age < 86400 {
-                ageDistribution["< 1d"]! += 1
-            } else if age < 86400 * 7 {
-                ageDistribution["< 7d"]! += 1
-            } else {
-                ageDistribution["> 7d"]! += 1
-            }
+            let bucket = ageBucket(for: age)
+            counters.ageBuckets[bucket, default: 0] += 1
         }
-
-        return CacheStatistics(
-            totalEntries: totalEntries,
-            totalHits: totalHits,
-            ageDistribution: ageDistribution
-        )
     }
 
     // MARK: - Cache Management
@@ -468,6 +466,12 @@ public actor ResponseCache {
         }
 
         cache = Dictionary(uniqueKeysWithValues: fresh.map { ($0.key, $0) })
+
+        // Reinitialize counters from loaded cache state
+        counters.totalEntries = cache.count
+        recalculateAgeBuckets()
+        counters.lastRecalculated = Date()
+        // Note: totalHits, exactHits, semanticHits, missReasons start at 0 (don't persist across restarts)
 
         logger.info("Loaded cache from disk", metadata: [
             "path": storageURL.path,
