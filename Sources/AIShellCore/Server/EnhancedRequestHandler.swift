@@ -122,9 +122,8 @@ public actor EnhancedRequestHandler {
     // MARK: - Suggest Handler
 
     private func handleSuggest(_ request: Request) async throws -> Response {
-        guard let command = request.payload.command else {
-            throw AIShellError.requestError("Missing command in suggest request")
-        }
+        // Validate input
+        let command = try InputValidator.validateCommand(request.payload.command)
 
         // Check cache first
         if enableCache, let cache = responseCache {
@@ -134,7 +133,7 @@ public actor EnhancedRequestHandler {
                 context: ["workingDir": request.payload.workingDirectory ?? ""]
             )
 
-            if let cached = await cache.get(cacheKey) {
+            if let cached = await cache.get(cacheKey, query: command) {
                 logger.debug("Cache hit for suggest", metadata: ["command": command])
                 return Response.success(
                     requestId: request.id,
@@ -187,7 +186,7 @@ public actor EnhancedRequestHandler {
                 context: ["workingDir": request.payload.workingDirectory ?? ""]
             )
 
-            await cache.set(cacheKey, response: trimmedSuggestion)
+            await cache.set(cacheKey, response: trimmedSuggestion, query: command)
         }
 
         return Response.success(
@@ -200,15 +199,14 @@ public actor EnhancedRequestHandler {
     // MARK: - Explain Handler
 
     private func handleExplain(_ request: Request) async throws -> Response {
-        guard let command = request.payload.command else {
-            throw AIShellError.requestError("Missing command in explain request")
-        }
+        // Validate input
+        let command = try InputValidator.validateCommand(request.payload.command)
 
         // Check cache
         if enableCache, let cache = responseCache {
             let cacheKey = await cache.createKey(type: "explain", content: command)
 
-            if let cached = await cache.get(cacheKey) {
+            if let cached = await cache.get(cacheKey, query: command) {
                 logger.debug("Cache hit for explain", metadata: ["command": command])
                 return Response.success(
                     requestId: request.id,
@@ -255,7 +253,7 @@ public actor EnhancedRequestHandler {
         // Cache the response
         if enableCache, let cache = responseCache {
             let cacheKey = await cache.createKey(type: "explain", content: command)
-            await cache.set(cacheKey, response: trimmedExplanation)
+            await cache.set(cacheKey, response: trimmedExplanation, query: command)
         }
 
         return Response.success(
@@ -268,9 +266,8 @@ public actor EnhancedRequestHandler {
     // MARK: - Task Handler
 
     private func handleTask(_ request: Request) async throws -> Response {
-        guard let task = request.payload.task else {
-            throw AIShellError.requestError("Missing task description")
-        }
+        // Validate input
+        let task = try InputValidator.validateTask(request.payload.task)
 
         // Build prompt with conversation history
         var variables = buildBaseVariables(for: request)
@@ -339,9 +336,28 @@ public actor EnhancedRequestHandler {
                 return true
             }
 
+        // Check for safety warnings
+        let warningResults = CommandSafetyChecker.checkAll(commands)
+        var metadata: [String: String] = [:]
+
+        if !warningResults.isEmpty {
+            var warningMessages: [String] = []
+            for result in warningResults {
+                let warnings = result.warnings.map { $0.description }.joined(separator: "; ")
+                warningMessages.append("\(result.command): \(warnings)")
+            }
+            metadata["safety_warnings"] = warningMessages.joined(separator: "\n")
+
+            logger.warning("Generated commands have safety warnings", metadata: [
+                "command_count": String(commands.count),
+                "warning_count": String(warningResults.count)
+            ])
+        }
+
         return Response.success(
             requestId: request.id,
             commands: commands,
+            metadata: metadata,
             processingTime: Date().timeIntervalSince(request.timestamp)
         )
     }
@@ -449,15 +465,14 @@ public actor EnhancedRequestHandler {
     // MARK: - Phase 2 Handlers
 
     private func handleRemember(_ request: Request) async throws -> Response {
-        guard let fact = request.payload.fact else {
-            throw AIShellError.requestError("Missing fact to remember")
-        }
+        // Validate input
+        let fact = try InputValidator.validateFact(request.payload.fact)
 
         guard enableMemory, let memoryStore = memoryStore else {
             throw AIShellError.requestError("Memory is not enabled")
         }
 
-        let importance = request.payload.importance ?? 0.7
+        let importance = InputValidator.validateImportance(request.payload.importance)
         let tags = request.payload.tags ?? []
 
         var metadata: [String: String] = [:]
@@ -497,9 +512,8 @@ public actor EnhancedRequestHandler {
     }
 
     private func handleRecall(_ request: Request) async throws -> Response {
-        guard let query = request.payload.query else {
-            throw AIShellError.requestError("Missing query for recall")
-        }
+        // Validate input
+        let query = try InputValidator.validateQuery(request.payload.query)
 
         guard enableMemory, let memoryStore = memoryStore else {
             throw AIShellError.requestError("Memory is not enabled")
@@ -519,21 +533,22 @@ public actor EnhancedRequestHandler {
     }
 
     private func handleIndex(_ request: Request) async throws -> Response {
-        guard let filePath = request.payload.filePath,
-              let content = request.payload.content else {
-            throw AIShellError.requestError("Missing filePath or content for indexing")
-        }
+        // Validate input
+        let filePath = try InputValidator.validateFilePath(request.payload.filePath)
+        let content = try InputValidator.validateContent(request.payload.content)
 
         guard enableRAG, let embeddingStore = embeddingStore else {
             throw AIShellError.requestError("RAG is not enabled")
         }
+
+        let importance = InputValidator.validateImportance(request.payload.importance)
 
         let metadata = DocumentMetadata(
             source: .projectDocs,
             title: filePath,
             tags: request.payload.tags ?? [],
             workingDirectory: request.payload.workingDirectory,
-            importance: request.payload.importance ?? 0.8
+            importance: importance
         )
 
         try await embeddingStore.addDocument(content: content, metadata: metadata)
@@ -549,9 +564,8 @@ public actor EnhancedRequestHandler {
     }
 
     private func handleSearch(_ request: Request) async throws -> Response {
-        guard let query = request.payload.query else {
-            throw AIShellError.requestError("Missing query for search")
-        }
+        // Validate input
+        let query = try InputValidator.validateQuery(request.payload.query)
 
         guard enableRAG, let embeddingStore = embeddingStore else {
             throw AIShellError.requestError("RAG is not enabled")
