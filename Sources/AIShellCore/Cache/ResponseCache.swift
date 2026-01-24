@@ -43,48 +43,159 @@ public actor ResponseCache {
     private let maxAge: TimeInterval = 86400 * 7  // 7 days
     private let enablePersistence: Bool
 
-    public init(storageURL: URL?, enablePersistence: Bool = true) {
+    // Semantic cache configuration
+    private let semanticThreshold: Double
+    private let ollamaClient: OllamaClient?
+    private let enableSemanticCache: Bool
+
+    public init(
+        storageURL: URL?,
+        enablePersistence: Bool = true,
+        semanticThreshold: Double = 0.92,
+        ollamaClient: OllamaClient? = nil,
+        enableSemanticCache: Bool = true
+    ) {
         self.storageURL = storageURL
         self.enablePersistence = enablePersistence
+        self.semanticThreshold = semanticThreshold
+        self.ollamaClient = ollamaClient
+        self.enableSemanticCache = enableSemanticCache
     }
 
     // MARK: - Cache Operations
 
     /// Get cached response if available and fresh
-    public func get(_ key: String) -> String? {
-        guard let entry = cache[key] else { return nil }
+    /// - Parameters:
+    ///   - key: The cache key to look up
+    ///   - query: Optional query text for semantic matching (fallback if exact match fails)
+    /// - Returns: Cached response if found (exact or semantic match), nil otherwise
+    public func get(_ key: String, query: String? = nil) async -> String? {
+        // Level 1: Exact match lookup (fast path)
+        if let entry = cache[key] {
+            // Check if expired
+            if isExpired(entry) {
+                cache.removeValue(forKey: key)
+                let ageHours = Date().timeIntervalSince(entry.timestamp) / 3600
+                logger.info("Cache entry expired and removed", metadata: [
+                    "key": String(key.prefix(16)) + "...",
+                    "age_hours": String(format: "%.1f", ageHours),
+                    "max_age_hours": String(format: "%.1f", maxAge / 3600)
+                ])
+            } else {
+                // Increment hit count
+                let updated = CachedResponse(
+                    key: entry.key,
+                    response: entry.response,
+                    timestamp: entry.timestamp,
+                    hitCount: entry.hitCount + 1,
+                    metadata: entry.metadata,
+                    embedding: entry.embedding,
+                    originalQuery: entry.originalQuery
+                )
+                cache[key] = updated
 
-        // Check if expired
-        if Date().timeIntervalSince(entry.timestamp) > maxAge {
-            cache.removeValue(forKey: key)
-            let ageHours = Date().timeIntervalSince(entry.timestamp) / 3600
-            logger.info("Cache entry expired and removed", metadata: [
-                "key": String(key.prefix(16)) + "...",
-                "age_hours": String(format: "%.1f", ageHours),
-                "max_age_hours": String(format: "%.1f", maxAge / 3600)
+                logger.debug("Cache hit (exact)", metadata: [
+                    "key": key,
+                    "hit_count": String(updated.hitCount)
+                ])
+
+                return entry.response
+            }
+        }
+
+        // Level 2: Semantic match lookup (if enabled and query provided)
+        if enableSemanticCache,
+           let query = query,
+           ollamaClient != nil {
+            if let semanticResult = await findSimilarMatch(query: query) {
+                return semanticResult
+            }
+        }
+
+        return nil
+    }
+
+    /// Find a semantically similar cached response
+    /// - Parameter query: The query text to match against cached embeddings
+    /// - Returns: The cached response if similarity >= threshold, nil otherwise
+    private func findSimilarMatch(query: String) async -> String? {
+        guard let client = ollamaClient else { return nil }
+
+        // Generate embedding for the query
+        let queryEmbedding: [Double]
+        do {
+            queryEmbedding = try await client.generateEmbedding(text: query)
+        } catch {
+            logger.warning("Failed to generate embedding for semantic cache lookup", metadata: [
+                "error": String(describing: error)
             ])
             return nil
         }
 
-        // Increment hit count
-        var updated = entry
-        updated = CachedResponse(
-            key: updated.key,
-            response: updated.response,
-            timestamp: updated.timestamp,
-            hitCount: updated.hitCount + 1,
-            metadata: updated.metadata,
-            embedding: updated.embedding,
-            originalQuery: updated.originalQuery
-        )
-        cache[key] = updated
+        // Scan all non-expired cache entries with embeddings
+        var bestMatch: (entry: CachedResponse, similarity: Double)?
 
-        logger.debug("Cache hit", metadata: [
-            "key": key,
-            "hit_count": String(updated.hitCount)
-        ])
+        for entry in cache.values {
+            // Skip expired entries
+            guard !isExpired(entry) else { continue }
 
-        return entry.response
+            // Skip entries without embeddings
+            guard let entryEmbedding = entry.embedding else { continue }
+
+            // Calculate similarity
+            let similarity = cosineSimilarity(queryEmbedding, entryEmbedding)
+
+            // Track best match
+            if similarity >= semanticThreshold {
+                if bestMatch == nil || similarity > bestMatch!.similarity {
+                    bestMatch = (entry, similarity)
+                }
+            }
+        }
+
+        // Return best match if found
+        if let match = bestMatch {
+            // Increment hit count for the matched entry
+            let updated = CachedResponse(
+                key: match.entry.key,
+                response: match.entry.response,
+                timestamp: match.entry.timestamp,
+                hitCount: match.entry.hitCount + 1,
+                metadata: match.entry.metadata,
+                embedding: match.entry.embedding,
+                originalQuery: match.entry.originalQuery
+            )
+            cache[match.entry.key] = updated
+
+            logger.info("Cache hit (semantic)", metadata: [
+                "similarity": String(format: "%.3f", match.similarity),
+                "threshold": String(format: "%.2f", semanticThreshold),
+                "original_query": match.entry.originalQuery ?? "unknown",
+                "hit_count": String(updated.hitCount)
+            ])
+
+            return match.entry.response
+        }
+
+        return nil
+    }
+
+    /// Check if a cache entry is expired
+    private func isExpired(_ entry: CachedResponse) -> Bool {
+        return Date().timeIntervalSince(entry.timestamp) > maxAge
+    }
+
+    /// Calculate cosine similarity between two vectors
+    private func cosineSimilarity(_ a: [Double], _ b: [Double]) -> Double {
+        guard a.count == b.count else { return 0.0 }
+
+        let dotProduct = zip(a, b).map(*).reduce(0, +)
+        let magnitudeA = sqrt(a.map { $0 * $0 }.reduce(0, +))
+        let magnitudeB = sqrt(b.map { $0 * $0 }.reduce(0, +))
+
+        guard magnitudeA > 0 && magnitudeB > 0 else { return 0.0 }
+
+        return dotProduct / (magnitudeA * magnitudeB)
     }
 
     /// Set cache entry
