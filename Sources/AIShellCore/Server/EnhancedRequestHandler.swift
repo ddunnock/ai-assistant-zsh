@@ -388,6 +388,13 @@ public actor EnhancedRequestHandler {
             if let docCount = stats["total_documents"] as? Int {
                 healthInfo["rag_documents"] = String(docCount)
             }
+
+            // Add embedding cache stats
+            let cacheStats = await embeddingStore.getCacheStatistics()
+            healthInfo["embedding_cache_entries"] = String(cacheStats.totalEntries)
+            healthInfo["embedding_cache_hits"] = String(cacheStats.cacheHits)
+            healthInfo["embedding_cache_misses"] = String(cacheStats.cacheMisses)
+            healthInfo["embedding_cache_hit_ratio"] = String(format: "%.2f", cacheStats.hitRatio)
         }
 
         if isOllamaHealthy {
