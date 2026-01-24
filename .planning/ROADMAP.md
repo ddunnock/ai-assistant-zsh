@@ -11,6 +11,7 @@
 | 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Complete |
 | 3 | Semantic Cache Matching | Cosine similarity for cache hits | Complete |
 | 4 | Statistics Optimization | Incremental counters for cache stats | Complete |
+| 5 | M1 Cleanup | Wire orphaned stats, add missing verification docs | Planned |
 
 ---
 
@@ -119,6 +120,36 @@ Plans:
 - [x] Statistics accuracy unchanged from current implementation
 - [x] exactHits and semanticHits tracked separately
 - [x] Miss reasons categorized (no_match, expired, below_threshold, etc.)
+
+---
+
+## Phase 5: M1 Cleanup
+
+**Goal:** Address tech debt from M1 audit — wire orphaned observability exports and add missing documentation
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 05-01-PLAN.md - Wire EmbeddingStore stats to health endpoint, create verification docs for phases 1-2
+
+**Gap Closure:** Closes tech debt from v1-MILESTONE-AUDIT.md
+
+**Requirements:**
+- R5.1: Wire `EmbeddingStore.getCacheStatistics()` to health endpoint for embedding cache observability
+- R5.2: Create VERIFICATION.md for Phase 1 (Query Embedding Cache)
+- R5.3: Create VERIFICATION.md for Phase 2 (Incremental Pruning)
+- R5.4: Human smoke test for semantic matching (manual verification)
+
+**Affected Files:**
+- `Sources/AIShellCore/Server/EnhancedRequestHandler.swift` (health endpoint)
+- `.planning/phases/01-query-embedding-cache/01-01-VERIFICATION.md` (new)
+- `.planning/phases/02-incremental-pruning/02-01-VERIFICATION.md` (new)
+
+**Acceptance Criteria:**
+- [ ] Health endpoint returns embedding cache statistics
+- [ ] Phase 1 has VERIFICATION.md with truths verified
+- [ ] Phase 2 has VERIFICATION.md with truths verified
+- [ ] Semantic matching manually tested with similar queries
 
 ---
 
