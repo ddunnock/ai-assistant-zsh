@@ -8,7 +8,7 @@
 | Phase | Name | Description | Status |
 |-------|------|-------------|--------|
 | 1 | Query Embedding Cache | LRU cache for query embeddings | Complete |
-| 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Pending |
+| 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Complete |
 | 3 | Semantic Cache Matching | Cosine similarity for cache hits | Pending |
 | 4 | Statistics Optimization | Incremental counters for cache stats | Pending |
 
@@ -41,32 +41,37 @@ Plans:
 
 ## Phase 2: Incremental Pruning
 
-**Goal:** Replace O(n log n) sorts with O(log n) heap operations in hot paths
+**Goal:** Replace inline sorting with heap-based pruning for cleaner, more maintainable code
 
 **Plans:** 1 plan
 
 Plans:
-- [ ] 02-01-PLAN.md - Update swift-collections to 1.1.0+, implement heap-based pruning in EmbeddingStore and MemoryStore
+- [x] 02-01-PLAN.md - Update swift-collections to 1.1.0+, implement heap-based pruning in EmbeddingStore and MemoryStore
 
 **Requirements:**
-- R2.1: Replace array sort in `addDocument()` with min-heap for oldest documents
-- R2.2: Replace array sort in `addMemory()` with min-heap for oldest memories
-- R2.3: Maintain heap invariant on each add (O(log n) instead of O(n log n))
+- R2.1: Replace array sort in `addDocument()` with heap-based pruning
+- R2.2: Replace array sort in `addMemory()` with heap-based pruning
+- R2.3: Use swift-collections Heap for standard top-k selection pattern
 
 **Affected Files:**
 - `Sources/AIShellCore/RAG/EmbeddingStore.swift` (lines 105-118)
 - `Sources/AIShellCore/Memory/MemoryStore.swift` (lines 203-217)
 
 **Acceptance Criteria:**
-- [ ] addDocument() runs in O(log n) time
-- [ ] addMemory() runs in O(log n) time
-- [ ] Pruning behavior unchanged (still keeps most recent/important)
+- [x] addDocument() uses heap-based pruning
+- [x] addMemory() uses heap-based pruning
+- [x] Pruning behavior unchanged (still keeps most recent/important)
 
 ---
 
 ## Phase 3: Semantic Cache Matching
 
 **Goal:** Return cached responses for semantically similar queries
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 03-01-PLAN.md - Implement semantic matching with embedding storage and JSON-based cache keys
 
 **Requirements:**
 - R3.1: Store query embedding alongside cached response
