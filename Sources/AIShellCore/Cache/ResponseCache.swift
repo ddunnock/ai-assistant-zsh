@@ -10,19 +10,25 @@ public struct CachedResponse: Codable {
     public let timestamp: Date
     public let hitCount: Int
     public let metadata: [String: String]
+    public let embedding: [Double]?
+    public let originalQuery: String?
 
     public init(
         key: String,
         response: String,
         timestamp: Date = Date(),
         hitCount: Int = 0,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        embedding: [Double]? = nil,
+        originalQuery: String? = nil
     ) {
         self.key = key
         self.response = response
         self.timestamp = timestamp
         self.hitCount = hitCount
         self.metadata = metadata
+        self.embedding = embedding
+        self.originalQuery = originalQuery
     }
 }
 
@@ -51,7 +57,12 @@ public actor ResponseCache {
         // Check if expired
         if Date().timeIntervalSince(entry.timestamp) > maxAge {
             cache.removeValue(forKey: key)
-            logger.debug("Cache entry expired", metadata: ["key": key])
+            let ageHours = Date().timeIntervalSince(entry.timestamp) / 3600
+            logger.info("Cache entry expired and removed", metadata: [
+                "key": String(key.prefix(16)) + "...",
+                "age_hours": String(format: "%.1f", ageHours),
+                "max_age_hours": String(format: "%.1f", maxAge / 3600)
+            ])
             return nil
         }
 
@@ -62,7 +73,9 @@ public actor ResponseCache {
             response: updated.response,
             timestamp: updated.timestamp,
             hitCount: updated.hitCount + 1,
-            metadata: updated.metadata
+            metadata: updated.metadata,
+            embedding: updated.embedding,
+            originalQuery: updated.originalQuery
         )
         cache[key] = updated
 
@@ -92,23 +105,41 @@ public actor ResponseCache {
         logger.debug("Cache set", metadata: ["key": key])
     }
 
-    /// Create cache key from request components
+    /// Create cache key from request components using JSON serialization for collision resistance
     public func createKey(type: String, content: String, context: [String: String] = [:]) -> String {
-        var components = [type, content]
-
-        // Add relevant context to key
-        for key in context.keys.sorted() {
-            if let value = context[key], !value.isEmpty {
-                components.append("\(key):\(value)")
-            }
+        // Use JSON-based key generation for collision-resistant hashing
+        struct CacheKeyComponents: Encodable {
+            let type: String
+            let content: String
+            let context: [String: String]
         }
 
-        let combined = components.joined(separator: "|")
+        let components = CacheKeyComponents(type: type, content: content, context: context)
 
-        // Create hash
-        let data = Data(combined.utf8)
-        let hash = SHA256.hash(data: data)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
+        // Serialize to JSON with sorted keys for deterministic output
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+
+        do {
+            let jsonData = try encoder.encode(components)
+            let hash = SHA256.hash(data: jsonData)
+            return hash.compactMap { String(format: "%02x", $0) }.joined()
+        } catch {
+            // Fallback to pipe-delimited format if JSON encoding fails (defensive)
+            logger.warning("JSON encoding failed for cache key, using fallback", metadata: [
+                "error": String(describing: error)
+            ])
+            var fallbackComponents = [type, content]
+            for key in context.keys.sorted() {
+                if let value = context[key], !value.isEmpty {
+                    fallbackComponents.append("\(key):\(value)")
+                }
+            }
+            let combined = fallbackComponents.joined(separator: "|")
+            let data = Data(combined.utf8)
+            let hash = SHA256.hash(data: data)
+            return hash.compactMap { String(format: "%02x", $0) }.joined()
+        }
     }
 
     /// Invalidate cache entry
