@@ -10,7 +10,7 @@
 | 1 | Query Embedding Cache | LRU cache for query embeddings | Complete |
 | 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Complete |
 | 3 | Semantic Cache Matching | Cosine similarity for cache hits | Complete |
-| 4 | Statistics Optimization | Incremental counters for cache stats | Pending |
+| 4 | Statistics Optimization | Incremental counters for cache stats | Complete |
 
 ---
 
@@ -102,7 +102,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md - Implement running counters, O(1) statistics, and LLM observability metrics (exactHits, semanticHits, missReasons)
+- [x] 04-01-PLAN.md - Implement running counters, O(1) statistics, and LLM observability metrics (exactHits, semanticHits, missReasons)
 
 **Requirements:**
 - R4.1: Maintain running counters for age distribution buckets
@@ -115,10 +115,10 @@ Plans:
 - `Sources/AIShellCore/Cache/ResponseCache.swift` (lines 132-163)
 
 **Acceptance Criteria:**
-- [ ] getStatistics() returns in constant time
-- [ ] Statistics accuracy unchanged from current implementation
-- [ ] exactHits and semanticHits tracked separately
-- [ ] Miss reasons categorized (no_match, expired, below_threshold, etc.)
+- [x] getStatistics() returns in constant time
+- [x] Statistics accuracy unchanged from current implementation
+- [x] exactHits and semanticHits tracked separately
+- [x] Miss reasons categorized (no_match, expired, below_threshold, etc.)
 
 ---
 
