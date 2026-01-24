@@ -7,11 +7,11 @@
 ## Current Position
 
 **Phase:** 5 of 5 (M1 Cleanup)
-**Plan:** 0 of 1 (needs planning)
-**Status:** Phase created from audit gaps
-**Last activity:** 2026-01-24 - Created gap closure phase from audit
+**Plan:** 1 of 1 (complete)
+**Status:** M1 MILESTONE COMPLETE
+**Last activity:** 2026-01-24 - Completed Phase 5 (M1 Cleanup)
 
-**Progress:** ████████████████░░░░ 80% (4/5 phases complete)
+**Progress:** ████████████████████ 100% (5/5 phases complete)
 
 ## Phase Status
 
@@ -21,7 +21,7 @@
 | 02 | Incremental Pruning | Complete | 1/1 | 2026-01-23 |
 | 03 | Semantic Cache Matching | Complete | 2/2 | 2026-01-24 |
 | 04 | Statistics Optimization | Complete | 1/1 | 2026-01-24 |
-| 05 | M1 Cleanup | Planned | 0/1 | - |
+| 05 | M1 Cleanup | Complete | 1/1 | 2026-01-24 |
 
 ## Accumulated Decisions
 
@@ -37,6 +37,7 @@
 | 04-01 | Track exact vs semantic hits separately | LLM cache observability | Insight into which strategy is more effective |
 | 04-01 | Categorize miss reasons | Diagnostic visibility | Enables optimization (e.g., adjust TTL if high expired rate) |
 | 04-01 | Reset hit counters on restart | Session-based metrics | Current effectiveness more meaningful than cumulative |
+| 05-01 | Wire getCacheStatistics to health | End-to-end observability | Embedding cache metrics visible in health endpoint |
 
 ## Blockers & Concerns
 
@@ -51,6 +52,6 @@ M1 milestone complete. Ready for:
 
 ## Session Continuity
 
-**Last session:** 2026-01-24 14:55:32Z
-**Stopped at:** Completed 04-01-PLAN.md
+**Last session:** 2026-01-24
+**Stopped at:** Completed 05-01-PLAN.md - M1 milestone complete
 **Resume file:** None

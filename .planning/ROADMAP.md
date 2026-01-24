@@ -11,7 +11,7 @@
 | 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Complete |
 | 3 | Semantic Cache Matching | Cosine similarity for cache hits | Complete |
 | 4 | Statistics Optimization | Incremental counters for cache stats | Complete |
-| 5 | M1 Cleanup | Wire orphaned stats, add missing verification docs | Planned |
+| 5 | M1 Cleanup | Wire orphaned stats, add missing verification docs | Complete |
 
 ---
 
@@ -130,7 +130,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 05-01-PLAN.md — Wire EmbeddingStore stats to health endpoint, create verification docs for phases 1-2, human smoke test semantic matching
+- [x] 05-01-PLAN.md — Wire EmbeddingStore stats to health endpoint, create verification docs for phases 1-2, human smoke test semantic matching
 
 **Gap Closure:** Closes tech debt from v1-MILESTONE-AUDIT.md
 
@@ -146,10 +146,10 @@ Plans:
 - `.planning/phases/02-incremental-pruning/02-01-VERIFICATION.md` (new)
 
 **Acceptance Criteria:**
-- [ ] Health endpoint returns embedding cache statistics
-- [ ] Phase 1 has VERIFICATION.md with truths verified
-- [ ] Phase 2 has VERIFICATION.md with truths verified
-- [ ] Semantic matching manually tested with similar queries
+- [x] Health endpoint returns embedding cache statistics
+- [x] Phase 1 has VERIFICATION.md with truths verified
+- [x] Phase 2 has VERIFICATION.md with truths verified
+- [x] Semantic matching manually tested with similar queries
 
 ---
 
