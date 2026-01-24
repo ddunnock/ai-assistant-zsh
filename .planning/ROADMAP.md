@@ -7,7 +7,7 @@
 
 | Phase | Name | Description | Status |
 |-------|------|-------------|--------|
-| 1 | Query Embedding Cache | LRU cache for query embeddings | Planned |
+| 1 | Query Embedding Cache | LRU cache for query embeddings | Complete |
 | 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Pending |
 | 3 | Semantic Cache Matching | Cosine similarity for cache hits | Pending |
 | 4 | Statistics Optimization | Incremental counters for cache stats | Pending |
@@ -21,7 +21,7 @@
 **Plans:** 1 plan
 
 Plans:
-- [ ] 01-01-PLAN.md - Implement LRU cache for query embeddings with SHA256 keys and metrics
+- [x] 01-01-PLAN.md - Implement LRU cache for query embeddings with SHA256 keys and metrics
 
 **Requirements:**
 - R1.1: Add LRU cache to EmbeddingStore with configurable max size (default: 1000)
@@ -33,15 +33,20 @@ Plans:
 - `Sources/AIShellCore/RAG/EmbeddingStore.swift`
 
 **Acceptance Criteria:**
-- [ ] Second identical query returns embedding from cache (no Ollama call)
-- [ ] Cache evicts oldest entries when limit reached
-- [ ] Metrics available: hits, misses, hit ratio
+- [x] Second identical query returns embedding from cache (no Ollama call)
+- [x] Cache evicts oldest entries when limit reached
+- [x] Metrics available: hits, misses, hit ratio
 
 ---
 
 ## Phase 2: Incremental Pruning
 
 **Goal:** Replace O(n log n) sorts with O(log n) heap operations in hot paths
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 02-01-PLAN.md - Update swift-collections to 1.1.0+, implement heap-based pruning in EmbeddingStore and MemoryStore
 
 **Requirements:**
 - R2.1: Replace array sort in `addDocument()` with min-heap for oldest documents
