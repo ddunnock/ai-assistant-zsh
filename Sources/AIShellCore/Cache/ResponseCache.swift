@@ -48,6 +48,20 @@ public actor ResponseCache {
     private let ollamaClient: OllamaClient?
     private let enableSemanticCache: Bool
 
+    // Statistics counters
+    private struct CacheCounters {
+        var totalEntries: Int = 0
+        var totalHits: Int = 0
+        var exactHits: Int = 0
+        var semanticHits: Int = 0
+        var ageBuckets: [String: Int] = ["< 1h": 0, "< 1d": 0, "< 7d": 0, "> 7d": 0]
+        var missReasons: [String: Int] = [:]
+        var lastRecalculated: Date = Date()
+    }
+
+    private var counters: CacheCounters = CacheCounters()
+    private let recalcInterval: TimeInterval = 300  // 5 minutes
+
     public init(
         storageURL: URL?,
         enablePersistence: Bool = true,
@@ -183,6 +197,19 @@ public actor ResponseCache {
     /// Check if a cache entry is expired
     private func isExpired(_ entry: CachedResponse) -> Bool {
         return Date().timeIntervalSince(entry.timestamp) > maxAge
+    }
+
+    /// Get age bucket key for a given age
+    private func ageBucket(for age: TimeInterval) -> String {
+        if age < 3600 {
+            return "< 1h"
+        } else if age < 86400 {
+            return "< 1d"
+        } else if age < 604800 {
+            return "< 7d"
+        } else {
+            return "> 7d"
+        }
     }
 
     /// Calculate cosine similarity between two vectors
@@ -439,11 +466,33 @@ public actor ResponseCache {
 public struct CacheStatistics {
     public let totalEntries: Int
     public let totalHits: Int
+    public let exactHits: Int
+    public let semanticHits: Int
     public let ageDistribution: [String: Int]
+    public let missReasons: [String: Int]
 
-    public init(totalEntries: Int, totalHits: Int, ageDistribution: [String: Int]) {
+    public init(
+        totalEntries: Int,
+        totalHits: Int,
+        ageDistribution: [String: Int],
+        exactHits: Int = 0,
+        semanticHits: Int = 0,
+        missReasons: [String: Int] = [:]
+    ) {
         self.totalEntries = totalEntries
         self.totalHits = totalHits
+        self.exactHits = exactHits
+        self.semanticHits = semanticHits
         self.ageDistribution = ageDistribution
+        self.missReasons = missReasons
+    }
+
+    public var hitRate: Double {
+        let totalRequests = totalHits + missReasons.values.reduce(0, +)
+        return totalRequests > 0 ? Double(totalHits) / Double(totalRequests) : 0.0
+    }
+
+    public var semanticHitRate: Double {
+        return totalHits > 0 ? Double(semanticHits) / Double(totalHits) : 0.0
     }
 }
