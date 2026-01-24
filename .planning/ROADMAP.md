@@ -7,7 +7,7 @@
 
 | Phase | Name | Description | Status |
 |-------|------|-------------|--------|
-| 1 | Query Embedding Cache | LRU cache for query embeddings | Pending |
+| 1 | Query Embedding Cache | LRU cache for query embeddings | Planned |
 | 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Pending |
 | 3 | Semantic Cache Matching | Cosine similarity for cache hits | Pending |
 | 4 | Statistics Optimization | Incremental counters for cache stats | Pending |
@@ -17,6 +17,11 @@
 ## Phase 1: Query Embedding Cache
 
 **Goal:** Eliminate redundant Ollama API calls for identical queries
+
+**Plans:** 1 plan
+
+Plans:
+- [ ] 01-01-PLAN.md - Implement LRU cache for query embeddings with SHA256 keys and metrics
 
 **Requirements:**
 - R1.1: Add LRU cache to EmbeddingStore with configurable max size (default: 1000)
