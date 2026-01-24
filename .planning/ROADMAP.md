@@ -9,7 +9,7 @@
 |-------|------|-------------|--------|
 | 1 | Query Embedding Cache | LRU cache for query embeddings | Complete |
 | 2 | Incremental Pruning | Heap-based top-k for memory/RAG stores | Complete |
-| 3 | Semantic Cache Matching | Cosine similarity for cache hits | Pending |
+| 3 | Semantic Cache Matching | Cosine similarity for cache hits | Complete |
 | 4 | Statistics Optimization | Incremental counters for cache stats | Pending |
 
 ---
@@ -68,10 +68,11 @@ Plans:
 
 **Goal:** Return cached responses for semantically similar queries
 
-**Plans:** 1 plan
+**Plans:** 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md - Implement semantic matching with embedding storage and JSON-based cache keys
+- [x] 03-01-PLAN.md - Implement semantic matching with embedding storage and JSON-based cache keys
+- [x] 03-02-PLAN.md - Wire semantic matching to request handlers (gap closure)
 
 **Requirements:**
 - R3.1: Store query embedding alongside cached response
@@ -81,15 +82,16 @@ Plans:
 
 **Affected Files:**
 - `Sources/AIShellCore/Cache/ResponseCache.swift`
-- `Sources/AIShellCore/Models/` (may need new cache entry model)
+- `Sources/AIShellCore/Server/EnhancedRequestHandler.swift`
+- `Sources/AIShellDaemon/DaemonService.swift`
 
 **Dependencies:**
 - Phase 1 (need embedding generation capability)
 
 **Acceptance Criteria:**
-- [ ] "list files" and "show files" return same cached response
-- [ ] Dissimilar queries generate fresh responses
-- [ ] Cache key collisions eliminated (no pipe separator issues)
+- [x] "list files" and "show files" return same cached response
+- [x] Dissimilar queries generate fresh responses
+- [x] Cache key collisions eliminated (no pipe separator issues)
 
 ---
 
