@@ -20,6 +20,10 @@ actor DaemonService {
 
     private var isRunning = false
 
+    // For graceful shutdown
+    private var shutdownContinuation: CheckedContinuation<Void, Never>?
+    private static var sharedInstance: DaemonService?
+
     init(configuration: Configuration) {
         self.configuration = configuration
     }
@@ -108,7 +112,10 @@ actor DaemonService {
                 try await memory.load()
                 logger.info("Loaded memory from disk")
             } catch {
-                logger.info("Starting with fresh memory")
+                logger.warning("Failed to load memory store - starting fresh", metadata: [
+                    "error": String(describing: error),
+                    "path": memoryURL.path
+                ])
             }
 
             self.memoryStore = memory
@@ -126,7 +133,10 @@ actor DaemonService {
                     logger.info("Loaded RAG store", metadata: ["documents": String(docCount)])
                 }
             } catch {
-                logger.info("Starting with empty RAG store")
+                logger.warning("Failed to load RAG store - starting with empty store", metadata: [
+                    "error": String(describing: error),
+                    "path": ragURL.path
+                ])
             }
 
             self.embeddingStore = embeddings
@@ -135,20 +145,23 @@ actor DaemonService {
         // Initialize Response Cache
         if configuration.enableCache {
             let cacheURL = configuration.storageURL(for: "cache", defaultName: "cache.json")
-            let cache = ResponseCache(storageURL: cacheURL, enablePersistence: true)
+            let cache = ResponseCache(storageURL: cacheURL, enablePersistence: true, ollamaClient: ollamaClient)
 
             do {
                 try await cache.load()
                 let stats = await cache.getStatistics()
                 logger.info("Loaded cache", metadata: ["entries": String(stats.totalEntries)])
             } catch {
-                logger.info("Starting with empty cache")
+                logger.warning("Failed to load cache - starting empty", metadata: [
+                    "error": String(describing: error),
+                    "path": cacheURL.path
+                ])
             }
 
             self.responseCache = cache
         }
     }
-    
+
     func stop() async {
         guard isRunning else { return }
 
@@ -160,6 +173,9 @@ actor DaemonService {
         if let server = socketServer {
             await server.stop()
         }
+
+        // Remove PID file
+        removePIDFile()
 
         isRunning = false
         logger.info("Daemon stopped")
@@ -206,37 +222,72 @@ actor DaemonService {
             }
         }
     }
-    
+
     func run() async throws {
+        // Store reference for signal handler
+        DaemonService.sharedInstance = self
+
         try await start()
 
         // Keep running until interrupted
         logger.info("Daemon running. Press Ctrl+C to stop.")
 
-        // Wait indefinitely (until process is killed or task is cancelled)
-        while isRunning {
-            try await Task.sleep(for: .seconds(3600)) // Sleep 1 hour at a time
+        // Wait for shutdown signal
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            Task {
+                await self.setShutdownContinuation(continuation)
+            }
         }
+
+        // Graceful shutdown
+        await stop()
+
+        logger.info("Shutdown complete")
     }
-    
-    private func setupSignalHandlers() async {
-        // Setup SIGINT and SIGTERM handlers
+
+    private func setShutdownContinuation(_ continuation: CheckedContinuation<Void, Never>) {
+        self.shutdownContinuation = continuation
+        setupSignalHandlers()
+    }
+
+    private func setupSignalHandlers() {
+        // Setup SIGINT handler (Ctrl+C)
         signal(SIGINT) { _ in
+            print("\nReceived SIGINT, shutting down gracefully...")
             Task {
-                await DaemonService.handleShutdown()
+                await DaemonService.sharedInstance?.triggerShutdown()
             }
         }
-        
+
+        // Setup SIGTERM handler (kill command)
         signal(SIGTERM) { _ in
+            print("\nReceived SIGTERM, shutting down gracefully...")
             Task {
-                await DaemonService.handleShutdown()
+                await DaemonService.sharedInstance?.triggerShutdown()
             }
         }
     }
-    
-    private static func handleShutdown() async {
-        print("\nReceived shutdown signal")
-        // The actual service instance will be stopped by the main function
-        exit(0)
+
+    private func triggerShutdown() {
+        guard let continuation = shutdownContinuation else { return }
+        shutdownContinuation = nil
+        continuation.resume()
+    }
+
+    /// Write PID file for process management
+    func writePIDFile() throws {
+        let pidDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ai-shell")
+        let pidFile = pidDir.appendingPathComponent("daemon.pid")
+
+        try FileManager.default.createDirectory(at: pidDir, withIntermediateDirectories: true)
+        try String(ProcessInfo.processInfo.processIdentifier).write(to: pidFile, atomically: true, encoding: .utf8)
+    }
+
+    /// Remove PID file on shutdown
+    private func removePIDFile() {
+        let pidFile = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/ai-shell/daemon.pid")
+        try? FileManager.default.removeItem(at: pidFile)
     }
 }
