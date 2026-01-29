@@ -11,7 +11,8 @@ public enum AIShellError: Error, CustomStringConvertible {
     case timeoutError(String)
     case configurationError(String)
     case validationError(String)
-    
+    case zaiError(String)
+
     public var description: String {
         switch self {
         case .socketError(let msg):
@@ -28,6 +29,8 @@ public enum AIShellError: Error, CustomStringConvertible {
             return "Configuration error: \(msg)"
         case .validationError(let msg):
             return "Validation error: \(msg)"
+        case .zaiError(let msg):
+            return "Z.ai error: \(msg)"
         }
     }
     
@@ -40,6 +43,7 @@ public enum AIShellError: Error, CustomStringConvertible {
         case .timeoutError: return "TIMEOUT_ERROR"
         case .configurationError: return "CONFIG_ERROR"
         case .validationError: return "VALIDATION_ERROR"
+        case .zaiError: return "ZAI_ERROR"
         }
     }
 }

@@ -5,6 +5,7 @@ import Foundation
 /// Enhanced request handler with Phase 2 features
 public actor EnhancedRequestHandler {
     private let ollamaClient: OllamaClient
+    private let zaiClient: ZaiClient?
     private let memoryStore: MemoryStore?
     private let embeddingStore: EmbeddingStore?
     private let responseCache: ResponseCache?
@@ -17,6 +18,7 @@ public actor EnhancedRequestHandler {
 
     public init(
         ollamaClient: OllamaClient,
+        zaiClient: ZaiClient? = nil,
         memoryStore: MemoryStore? = nil,
         embeddingStore: EmbeddingStore? = nil,
         responseCache: ResponseCache? = nil,
@@ -26,6 +28,7 @@ public actor EnhancedRequestHandler {
         enableCache: Bool = true
     ) {
         self.ollamaClient = ollamaClient
+        self.zaiClient = zaiClient
         self.memoryStore = memoryStore
         self.embeddingStore = embeddingStore
         self.responseCache = responseCache
@@ -33,6 +36,16 @@ public actor EnhancedRequestHandler {
         self.enableMemory = enableMemory
         self.enableRAG = enableRAG
         self.enableCache = enableCache
+    }
+
+    // MARK: - Generation Helper
+
+    /// Generate completion using z.ai if available, otherwise Ollama
+    private func generateCompletion(prompt: String, system: String?) async throws -> String {
+        if let zai = zaiClient {
+            return try await zai.generate(prompt: prompt, system: system)
+        }
+        return try await ollamaClient.generate(prompt: prompt, system: system)
     }
 
     // MARK: - Request Handling
@@ -171,7 +184,7 @@ public actor EnhancedRequestHandler {
         let userPrompt = userTemplate.render(variables: variables)
 
         // Generate suggestion
-        let suggestion = try await ollamaClient.generate(
+        let suggestion = try await generateCompletion(
             prompt: userPrompt,
             system: systemPrompt
         )
@@ -243,7 +256,7 @@ public actor EnhancedRequestHandler {
         let systemPrompt = systemTemplate.system ?? ""
         let userPrompt = userTemplate.render(variables: variables)
 
-        let explanation = try await ollamaClient.generate(
+        let explanation = try await generateCompletion(
             prompt: userPrompt,
             system: systemPrompt
         )
@@ -317,7 +330,7 @@ public actor EnhancedRequestHandler {
         let systemPrompt = systemTemplate.system ?? ""
         let userPrompt = userTemplate.render(variables: variables)
 
-        let commandsText = try await ollamaClient.generate(
+        let commandsText = try await generateCompletion(
             prompt: userPrompt,
             system: systemPrompt
         )
@@ -371,6 +384,14 @@ public actor EnhancedRequestHandler {
         let isOllamaHealthy = await ollamaClient.healthCheck()
         healthInfo["ollama"] = isOllamaHealthy ? "healthy" : "unhealthy"
 
+        // Check z.ai if enabled
+        if let zai = zaiClient {
+            let isZaiHealthy = await zai.healthCheck()
+            healthInfo["zai"] = isZaiHealthy ? "healthy" : "unhealthy"
+        } else {
+            healthInfo["zai"] = "disabled"
+        }
+
         // Check components
         healthInfo["memory"] = enableMemory && memoryStore != nil ? "enabled" : "disabled"
         healthInfo["rag"] = enableRAG && embeddingStore != nil ? "enabled" : "disabled"
@@ -397,17 +418,29 @@ public actor EnhancedRequestHandler {
             healthInfo["embedding_cache_hit_ratio"] = String(format: "%.2f", cacheStats.hitRatio)
         }
 
-        if isOllamaHealthy {
+        // Determine overall health - Ollama required for embeddings, z.ai for generation if enabled
+        let generationHealthy = zaiClient != nil
+            ? (healthInfo["zai"] == "healthy")
+            : isOllamaHealthy
+
+        if isOllamaHealthy && generationHealthy {
             return Response.success(
                 requestId: request.id,
                 metadata: healthInfo,
                 processingTime: Date().timeIntervalSince(request.timestamp)
             )
-        } else {
+        } else if !isOllamaHealthy {
             return Response.error(
                 requestId: request.id,
                 code: "OLLAMA_UNAVAILABLE",
-                message: "Ollama service is not responding",
+                message: "Ollama service is not responding (required for embeddings)",
+                details: healthInfo.description
+            )
+        } else {
+            return Response.error(
+                requestId: request.id,
+                code: "ZAI_UNAVAILABLE",
+                message: "Z.ai service is not responding",
                 details: healthInfo.description
             )
         }

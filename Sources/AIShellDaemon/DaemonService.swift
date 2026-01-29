@@ -11,6 +11,7 @@ actor DaemonService {
 
     private var socketServer: SocketServer?
     private var ollamaClient: OllamaClient?
+    private var zaiClient: ZaiClient?
 
     // Phase 2 components
     private var memoryStore: MemoryStore?
@@ -40,7 +41,8 @@ actor DaemonService {
             "model": configuration.model,
             "memory": String(configuration.enableMemory),
             "rag": String(configuration.enableRAG),
-            "cache": String(configuration.enableCache)
+            "cache": String(configuration.enableCache),
+            "zai": String(configuration.enableZai)
         ])
 
         // Initialize Ollama client
@@ -58,12 +60,41 @@ actor DaemonService {
 
         logger.info("Ollama connection verified")
 
+        // Initialize z.ai client if enabled
+        var zai: ZaiClient?
+        if configuration.enableZai {
+            guard let apiKey = configuration.getZaiAPIKey() else {
+                throw AIShellError.configurationError(
+                    "Z.ai is enabled but no API key provided. Set zaiAPIKey in config or ZAI_API_KEY environment variable."
+                )
+            }
+
+            zai = ZaiClient(
+                baseURL: configuration.getZaiURL(),
+                model: configuration.getZaiModel(),
+                apiKey: apiKey
+            )
+            self.zaiClient = zai
+
+            // Check z.ai health
+            let isZaiHealthy = await zai!.healthCheck()
+            guard isZaiHealthy else {
+                throw AIShellError.zaiError("Z.ai API is not responding. Check your API key and network connection.")
+            }
+
+            logger.info("Z.ai connection verified", metadata: [
+                "url": configuration.getZaiURL(),
+                "model": configuration.getZaiModel()
+            ])
+        }
+
         // Initialize Phase 2 components
         try await initializePhase2Components(ollamaClient: ollama)
 
         // Create enhanced request handler with Phase 2 features
         let requestHandler = EnhancedRequestHandler(
             ollamaClient: ollama,
+            zaiClient: zai,
             memoryStore: memoryStore,
             embeddingStore: embeddingStore,
             responseCache: responseCache,

@@ -24,6 +24,12 @@ struct Configuration: Codable {
     let maxCacheAge: Int?   // days
     let ragMinSimilarity: Double?
 
+    // Z.ai configuration
+    let enableZai: Bool
+    let zaiAPIKey: String?
+    let zaiURL: String?
+    let zaiModel: String?
+
     /// Valid log level values
     private static let validLogLevels = Set(["debug", "info", "warning", "error"])
 
@@ -108,8 +114,27 @@ struct Configuration: Codable {
         promptsStoragePath: nil,
         maxMemoryAge: nil,
         maxCacheAge: nil,
-        ragMinSimilarity: nil
+        ragMinSimilarity: nil,
+        enableZai: false,
+        zaiAPIKey: nil,
+        zaiURL: nil,
+        zaiModel: nil
     )
+
+    /// Get z.ai API key from config or environment variable
+    func getZaiAPIKey() -> String? {
+        zaiAPIKey ?? ProcessInfo.processInfo.environment["ZAI_API_KEY"]
+    }
+
+    /// Get z.ai URL with default fallback
+    func getZaiURL() -> String {
+        zaiURL ?? "https://api.z.ai/api/paas/v4"
+    }
+
+    /// Get z.ai model with default fallback
+    func getZaiModel() -> String {
+        zaiModel ?? "glm-4.7"
+    }
 
     static func load(from path: String?) throws -> Configuration {
         guard let path = path else {
@@ -142,7 +167,11 @@ struct Configuration: Codable {
                     promptsStoragePath: partial["promptsStoragePath"] as? String,
                     maxMemoryAge: partial["maxMemoryAge"] as? Int,
                     maxCacheAge: partial["maxCacheAge"] as? Int,
-                    ragMinSimilarity: partial["ragMinSimilarity"] as? Double
+                    ragMinSimilarity: partial["ragMinSimilarity"] as? Double,
+                    enableZai: partial["enableZai"] as? Bool ?? Configuration.default.enableZai,
+                    zaiAPIKey: partial["zaiAPIKey"] as? String,
+                    zaiURL: partial["zaiURL"] as? String,
+                    zaiModel: partial["zaiModel"] as? String
                 )
             }
 

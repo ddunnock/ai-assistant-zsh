@@ -59,7 +59,11 @@ public struct AIShellDaemonCLI: AsyncParsableCommand {
                 promptsStoragePath: configuration.promptsStoragePath,
                 maxMemoryAge: configuration.maxMemoryAge,
                 maxCacheAge: configuration.maxCacheAge,
-                ragMinSimilarity: configuration.ragMinSimilarity
+                ragMinSimilarity: configuration.ragMinSimilarity,
+                enableZai: configuration.enableZai,
+                zaiAPIKey: configuration.zaiAPIKey,
+                zaiURL: configuration.zaiURL,
+                zaiModel: configuration.zaiModel
             )
         } else if verbose {
             // Apply verbose flag even without socket override
